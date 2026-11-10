@@ -211,13 +211,14 @@ export default function ProductViewerPage({
                 <ARLaunchButton
                   glbUrl={glbUrl}
                   usdzUrl={usdzUrl}
+                  thumbnailUrl={product?.thumbnailUrl || product?.imageUrl}
                   title={displayName}
                   placementMode={placementMode}
                   onPlacementModeChange={setPlacementMode}
                   className="w-full h-12 shadow-sm"
                 />
                 <p className="text-[11px] text-secondary text-center leading-normal">
-                  Launches real-world mobile camera AR with surface tracking and 4-corner doorway opening alignment.
+                  Full-screen mobile camera AR with one-tap placement and touch drag repositioning.
                 </p>
               </div>
 

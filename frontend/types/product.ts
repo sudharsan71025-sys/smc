@@ -22,6 +22,8 @@ export interface Product {
   name: string;
   glbUrl: string;
   usdzUrl?: string;
+  thumbnailUrl?: string;
+  imageUrl?: string;
   status: ProductStatus;
   createdBy?: {
     _id: string;
