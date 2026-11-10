@@ -109,7 +109,7 @@ export function ModelViewerCanvas({
       el.removeEventListener('load', handleLoad);
       el.removeEventListener('error', handleError);
     };
-  }, [src, isReady, modelViewerRef, onModelLoaded, onModelError]);
+  }, [src, iosSrc, isReady, modelViewerRef, onModelLoaded, onModelError]);
 
   // Reset Camera View
   const handleResetCamera = useCallback(() => {
