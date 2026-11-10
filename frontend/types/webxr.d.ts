@@ -87,3 +87,4 @@ declare interface XRSystem extends EventTarget {
 declare interface Navigator {
   readonly xr?: XRSystem;
 }
+
