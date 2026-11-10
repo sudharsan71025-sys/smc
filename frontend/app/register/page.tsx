@@ -103,13 +103,13 @@ export default function RegisterPage() {
   };
 
   return (
-    <div className="min-h-[calc(100vh-8rem)] flex items-center justify-center px-6 py-12">
-      <Card className="w-full max-w-md border-border p-2 sm:p-4">
-        <CardHeader className="text-center space-y-2">
-          <CardTitle className="text-2xl font-light tracking-tight">
+    <div className="min-h-[calc(100vh-8rem)] flex items-center justify-center px-4 sm:px-6 py-8 sm:py-16">
+      <Card className="w-full max-w-md border-border p-3 sm:p-6 shadow-sm bg-white">
+        <CardHeader className="text-center space-y-2 p-4 sm:p-6">
+          <CardTitle className="text-2xl sm:text-3xl font-light tracking-tight">
             Create <span className="font-semibold text-primary">Account</span>
           </CardTitle>
-          <CardDescription>
+          <CardDescription className="text-xs sm:text-sm">
             Register to explore and experience 3D doors & windows in AR
           </CardDescription>
         </CardHeader>

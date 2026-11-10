@@ -170,19 +170,19 @@ export function ARLaunchButton({
 
       {/* AR Guidance & Launch Modal */}
       {showGuidanceModal && (
-        <div className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-4">
-          <div className="bg-white border border-border max-w-lg w-full p-6 space-y-5 max-h-[90vh] overflow-y-auto">
+        <div className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-3 sm:p-4 backdrop-blur-sm">
+          <div className="bg-white border border-border max-w-lg w-full p-4 sm:p-6 space-y-4 max-h-[90vh] overflow-y-auto shadow-xl">
             {/* Modal Header */}
             <div className="flex items-center justify-between border-b border-border pb-3">
               <div className="space-y-0.5">
                 <span className="text-[10px] uppercase tracking-wider text-primary font-semibold">
                   Augmented Reality Experience
                 </span>
-                <h3 className="text-base font-semibold text-foreground">{title}</h3>
+                <h3 className="text-sm sm:text-base font-semibold text-foreground">{title}</h3>
               </div>
               <button
                 onClick={() => setShowGuidanceModal(false)}
-                className="text-xs font-bold text-secondary hover:text-foreground p-1"
+                className="text-xs font-bold text-secondary hover:text-foreground p-1.5"
               >
                 ✕
               </button>

@@ -51,7 +51,7 @@ export default function UserDashboardPage() {
   }
 
   return (
-    <div className="container max-w-7xl mx-auto px-6 sm:px-8 py-10 space-y-8">
+    <div className="container max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 sm:py-10 space-y-6 sm:space-y-8">
       {/* Page Header */}
       <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-4 border-b border-border pb-6">
         <div className="space-y-1">
@@ -59,7 +59,7 @@ export default function UserDashboardPage() {
             <span className="text-xs text-secondary">Welcome back,</span>
             <span className="text-xs font-semibold text-foreground">{user?.name}</span>
             {isAdmin && (
-              <span className="text-[10px] px-1.5 py-0.2 bg-primary/10 text-primary border border-primary/20">
+              <span className="text-[10px] px-1.5 py-0.2 bg-primary/10 text-primary border border-primary/20 uppercase font-semibold">
                 Admin
               </span>
             )}
@@ -68,29 +68,41 @@ export default function UserDashboardPage() {
             Architectural <span className="font-semibold text-primary">Collection</span>
           </h1>
           <p className="text-xs sm:text-sm text-secondary">
-            Select any published door or window to inspect its 3D model and launch in Augmented Reality.
+            Select any published door or window to inspect in 3D and project at 1:1 scale in AR.
           </p>
         </div>
 
         {/* Search Filter */}
-        <div className="w-full sm:w-64">
-          <input
-            type="text"
-            placeholder="Search collection..."
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            className="w-full h-9 border border-border px-3 text-xs bg-white text-foreground focus:outline-none focus:border-primary"
-          />
+        <div className="w-full sm:w-72">
+          <div className="relative">
+            <input
+              type="text"
+              placeholder="Search collection..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="w-full h-10 border border-border px-3.5 pr-8 text-xs bg-white text-foreground placeholder:text-secondary/70 focus:outline-none focus:border-primary transition-colors shadow-sm"
+            />
+            {searchQuery && (
+              <button
+                type="button"
+                onClick={() => setSearchQuery('')}
+                className="absolute right-2.5 top-1/2 -translate-y-1/2 text-xs text-secondary hover:text-foreground"
+              >
+                ✕
+              </button>
+            )}
+          </div>
         </div>
       </div>
 
       {/* Product Grid */}
       {isLoading ? (
-        <div className="p-16 text-center text-xs text-secondary">
-          Loading published collection...
+        <div className="p-16 text-center text-xs text-secondary space-y-3">
+          <div className="w-6 h-6 border-2 border-border border-t-primary rounded-full animate-spin mx-auto" />
+          <p>Loading published collection...</p>
         </div>
       ) : filteredProducts.length === 0 ? (
-        <Card className="p-12 text-center space-y-3 border-border">
+        <Card className="p-10 sm:p-14 text-center space-y-3 border-border">
           <p className="text-sm font-medium text-foreground">No Published Models Found</p>
           <p className="text-xs text-secondary max-w-md mx-auto">
             {searchQuery
@@ -99,12 +111,12 @@ export default function UserDashboardPage() {
           </p>
           {isAdmin && (
             <Button asChild variant="outline" size="sm" className="mt-2 text-xs">
-              <Link href="/admin">Go to Admin Dashboard to Upload & Publish</Link>
+              <Link href="/admin">Go to Admin Hub to Upload & Publish</Link>
             </Button>
           )}
         </Card>
       ) : (
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5 sm:gap-6">
           {filteredProducts.map((product) => {
             const displayName = product.name || product.title || 'Architectural Model';
             return (
@@ -113,15 +125,15 @@ export default function UserDashboardPage() {
                 href={`/products/${product._id}`}
                 className="block group focus:outline-none"
               >
-                <Card className="h-full border-border hover:border-primary transition-colors flex flex-col justify-between p-6">
-                  <CardHeader className="p-0 space-y-2">
+                <Card className="h-full border-border hover:border-primary/80 transition-all duration-200 flex flex-col justify-between p-5 sm:p-6 shadow-sm hover:shadow-md bg-white">
+                  <CardHeader className="p-0 space-y-3">
                     <div className="flex items-center justify-between">
-                      <div className="flex items-center space-x-1.5">
-                        <span className="text-[10px] uppercase tracking-wider px-1.5 py-0.5 border border-border text-secondary">
+                      <div className="flex items-center space-x-1.5 flex-wrap gap-y-1">
+                        <span className="text-[10px] uppercase tracking-wider px-2 py-0.5 border border-border bg-muted/30 text-secondary font-medium">
                           GLB
                         </span>
                         {product.usdzUrl && (
-                          <span className="text-[10px] uppercase tracking-wider px-1.5 py-0.5 border border-border text-secondary">
+                          <span className="text-[10px] uppercase tracking-wider px-2 py-0.5 border border-[#C5A572]/30 bg-[#FAF7F2] text-[#202020] font-medium">
                             iOS AR
                           </span>
                         )}
@@ -131,14 +143,16 @@ export default function UserDashboardPage() {
                       </span>
                     </div>
 
-                    <CardTitle className="text-base font-medium group-hover:text-primary transition-colors pt-2">
+                    <CardTitle className="text-base font-medium group-hover:text-primary transition-colors pt-1 leading-snug">
                       {displayName}
                     </CardTitle>
                   </CardHeader>
 
-                  <CardContent className="p-0 pt-6 mt-auto flex items-center justify-between border-t border-border/60">
-                    <span className="text-xs text-secondary">View 3D Model & AR</span>
-                    <span className="text-xs font-semibold text-foreground group-hover:translate-x-1 transition-transform">
+                  <CardContent className="p-0 pt-5 mt-auto flex items-center justify-between border-t border-border/60">
+                    <span className="text-xs text-secondary group-hover:text-foreground transition-colors">
+                      View 3D Model & AR
+                    </span>
+                    <span className="text-xs font-semibold text-primary group-hover:translate-x-1 transition-transform">
                       →
                     </span>
                   </CardContent>

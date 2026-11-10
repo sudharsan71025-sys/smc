@@ -1,4 +1,4 @@
-import type { Metadata } from 'next';
+import type { Metadata, Viewport } from 'next';
 import { Geist, Geist_Mono } from 'next/font/google';
 import './globals.css';
 import { Providers } from '@/components/common/Providers';
@@ -19,6 +19,13 @@ export const metadata: Metadata = {
   title: 'SMC AR Door & Window Showroom',
   description:
     'Modern WebXR, Android Scene Viewer, and Apple Quick Look AR-enabled Architectural Door & Window Platform',
+};
+
+export const viewport: Viewport = {
+  width: 'device-width',
+  initialScale: 1,
+  maximumScale: 5,
+  themeColor: '#FFFFFF',
 };
 
 export default function RootLayout({

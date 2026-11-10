@@ -16,7 +16,9 @@ export default function ProductViewerPage({
 }: {
   params: Promise<{ id: string }>;
 }) {
-  const { id } = use(params);
+  const resolvedParams = use(params);
+  const id = resolvedParams.id;
+
   const { token, isLoading: authLoading, isAdmin } = useAuth({
     requireAuth: true,
     redirectTo: '/login',
@@ -72,29 +74,29 @@ export default function ProductViewerPage({
     : undefined;
 
   return (
-    <div className="container max-w-7xl mx-auto px-6 sm:px-8 py-8 space-y-8">
-      {/* Navigation & Header */}
-      <div className="flex items-center justify-between">
+    <div className="container max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 sm:py-8 space-y-6 sm:space-y-8">
+      {/* Navigation & Status Header */}
+      <div className="flex flex-col xs:flex-row xs:items-center justify-between gap-3 border-b border-border/60 pb-4">
         <Button
           asChild
           variant="ghost"
           size="sm"
-          className="px-0 hover:bg-transparent text-secondary hover:text-foreground"
+          className="px-0 h-auto hover:bg-transparent text-secondary hover:text-foreground self-start"
         >
-          <Link href="/dashboard" className="inline-flex items-center space-x-1.5 text-xs">
+          <Link href="/dashboard" className="inline-flex items-center space-x-1.5 text-xs font-medium">
             <span>←</span>
             <span>Back to Collection</span>
           </Link>
         </Button>
 
         {product && (
-          <div className="flex items-center space-x-2">
+          <div className="flex items-center space-x-2 self-start xs:self-auto">
             <span className="text-[10px] uppercase tracking-wider text-secondary">
-              Product ID: {product._id.slice(-6)}
+              ID: {product._id.slice(-6)}
             </span>
             {product.status === 'draft' ? (
               <span className="text-[10px] font-semibold uppercase px-2 py-0.5 border border-border bg-muted/40 text-secondary">
-                Draft Preview (Admin)
+                Draft Preview
               </span>
             ) : (
               <span className="text-[10px] font-semibold uppercase px-2 py-0.5 border border-[#C5A572]/40 bg-[#FAF7F2] text-[#202020]">
@@ -111,7 +113,7 @@ export default function ProductViewerPage({
           <p>Retrieving 3D product from MongoDB...</p>
         </div>
       ) : errorMessage && !product ? (
-        <Card className="p-12 text-center space-y-3 border-border">
+        <Card className="p-8 sm:p-12 text-center space-y-3 border-border">
           <p className="text-sm font-medium text-foreground">{errorMessage}</p>
           <p className="text-xs text-secondary max-w-md mx-auto">
             This door or window model could not be loaded from the catalog. Return to the collection dashboard to choose an active model.
@@ -121,7 +123,7 @@ export default function ProductViewerPage({
           </Button>
         </Card>
       ) : (
-        <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 lg:gap-8 items-start">
           {/* ========================================================= */}
           {/* 3D VIEWPORT (GOOGLE MODEL-VIEWER)                         */}
           {/* ========================================================= */}
@@ -133,81 +135,84 @@ export default function ProductViewerPage({
               cameraControls
               autoRotate={false}
               arPlacement={placementMode}
-              className="w-full h-[420px] sm:h-[540px] lg:h-[620px]"
+              className="w-full h-[360px] sm:h-[480px] lg:h-[600px] shadow-sm"
               onModelLoaded={handleModelLoaded}
             />
 
             {/* Gesture Guide & Shortcuts */}
             <div className="flex flex-col sm:flex-row sm:items-center justify-between text-[11px] text-secondary gap-2 pt-1 border-t border-border/50">
-              <p>
-                <strong>Controls:</strong> Left-click drag to rotate • Wheel/Pinch to zoom • Right-click drag to pan.
+              <p className="flex items-center space-x-1.5 flex-wrap">
+                <span className="font-semibold text-foreground">Controls:</span>
+                <span>Drag to rotate • Pinch/Scroll to zoom • Two-finger drag to pan</span>
               </p>
               {loadTimeMs !== null && (
                 <p className="text-[10px] text-primary font-medium">
-                  Model verified & rendered in {loadTimeMs} ms
+                  Model ready ({loadTimeMs}ms)
                 </p>
               )}
             </div>
           </div>
 
           {/* ========================================================= */}
-          {/* PRODUCT INFORMATION & MODEL VALIDATION                    */}
+          {/* PRODUCT INFORMATION & MODEL SPECIFICATIONS                */}
           {/* ========================================================= */}
-          <div className="lg:col-span-4 space-y-6">
-            <div className="border border-border p-6 bg-white space-y-6">
+          <div className="lg:col-span-4 space-y-5">
+            <div className="border border-border p-5 sm:p-6 bg-white space-y-6 shadow-sm">
               {/* Product Header */}
-              <div className="space-y-2 border-b border-border pb-6">
+              <div className="space-y-1.5 border-b border-border pb-5">
                 <span className="text-[10px] uppercase tracking-widest text-primary font-semibold block">
                   Architectural 3D System
                 </span>
-                <h1 className="text-2xl sm:text-3xl font-light tracking-tight text-foreground">
+                <h1 className="text-xl sm:text-2xl lg:text-3xl font-light tracking-tight text-foreground">
                   {displayName}
                 </h1>
               </div>
 
-              {/* Model Validation & Specs */}
-              <div className="space-y-3 border-b border-border pb-6 text-xs">
+              {/* Model Specifications */}
+              <div className="space-y-3 border-b border-border pb-5 text-xs">
                 <span className="text-[11px] uppercase tracking-wider font-semibold text-foreground block">
                   3D Model Specifications
                 </span>
                 <div className="space-y-2 text-secondary">
-                  <div className="flex justify-between items-center">
+                  <div className="flex justify-between items-center py-0.5 border-b border-border/30">
                     <span>File Format:</span>
                     <span className="font-semibold text-foreground">glTF 2.0 Binary (.glb)</span>
                   </div>
-                  <div className="flex justify-between items-center">
+                  <div className="flex justify-between items-center py-0.5 border-b border-border/30">
                     <span>Apple AR (iOS):</span>
                     <span className="font-semibold text-foreground">
-                      {usdzUrl ? 'USDZ Configured (Quick Look)' : 'USDZ Pending (3D Fallback)'}
+                      {usdzUrl ? 'USDZ Configured' : '3D Fallback'}
                     </span>
                   </div>
-                  <div className="flex justify-between items-center">
+                  <div className="flex justify-between items-center py-0.5 border-b border-border/30">
                     <span>Orientation:</span>
-                    <span className="font-semibold text-foreground">Y-Up (Vertical Standard)</span>
+                    <span className="font-semibold text-foreground">Y-Up (Vertical)</span>
                   </div>
-                  <div className="flex justify-between items-center">
+                  <div className="flex justify-between items-center py-0.5 border-b border-border/30">
                     <span>Target Scale:</span>
-                    <span className="font-semibold text-foreground">1:1 Real-World Scale</span>
+                    <span className="font-semibold text-foreground">1:1 Real Scale</span>
                   </div>
-                  <div className="flex justify-between items-center">
-                    <span>AR Placement:</span>
-                    <span className="font-semibold text-foreground">Wall Surface Anchor</span>
+                  <div className="flex justify-between items-center py-0.5">
+                    <span>AR Surface:</span>
+                    <span className="font-semibold text-foreground">
+                      {placementMode === 'wall' ? 'Vertical Wall' : 'Floor'}
+                    </span>
                   </div>
                 </div>
               </div>
 
               {/* View in AR Action */}
-              <div className="space-y-3 pt-2">
+              <div className="space-y-3 pt-1">
                 <ARLaunchButton
                   glbUrl={glbUrl}
                   usdzUrl={quickLookUrl}
                   title={displayName}
                   placementMode={placementMode}
                   onPlacementModeChange={setPlacementMode}
-                  className="w-full h-12"
+                  className="w-full h-12 shadow-sm"
                 />
                 <p className="text-[11px] text-secondary text-center leading-normal">
-                  Launches Apple AR Quick Look on iOS and Google Scene Viewer on Android for physical room projection.
+                  Launches Apple Quick Look on iPhone and Google Scene Viewer on Android for physical room projection.
                 </p>
               </div>
 
@@ -215,7 +220,7 @@ export default function ProductViewerPage({
               {isAdmin && (
                 <div className="pt-4 border-t border-border">
                   <Button asChild variant="outline" size="sm" className="w-full text-xs">
-                    <Link href="/admin">Manage in Admin Dashboard</Link>
+                    <Link href="/admin">Manage in Admin Hub</Link>
                   </Button>
                 </div>
               )}

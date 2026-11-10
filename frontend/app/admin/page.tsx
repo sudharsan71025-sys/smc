@@ -301,7 +301,7 @@ export default function AdminDashboardPage() {
   });
 
   return (
-    <div className="container max-w-7xl mx-auto px-6 sm:px-8 py-10 space-y-10">
+    <div className="container max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 sm:py-10 space-y-8">
       {/* Page Title & Stats */}
       <div className="border-b border-border pb-6 flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div className="space-y-1">
@@ -314,18 +314,18 @@ export default function AdminDashboardPage() {
         </div>
 
         {/* Stats Counters */}
-        <div className="flex items-center space-x-3 text-xs">
-          <div className="border border-border px-3 py-1.5 bg-white text-center">
-            <span className="text-secondary block text-[10px] uppercase">Total</span>
-            <span className="font-semibold text-foreground">{metaCounts.total}</span>
+        <div className="grid grid-cols-3 gap-2 sm:gap-3 text-xs w-full sm:w-auto">
+          <div className="border border-border px-3 py-2 bg-white text-center shadow-sm">
+            <span className="text-secondary block text-[10px] uppercase tracking-wider">Total</span>
+            <span className="font-semibold text-foreground text-sm">{metaCounts.total}</span>
           </div>
-          <div className="border border-[#C5A572]/40 bg-[#FAF7F2] px-3 py-1.5 text-center">
-            <span className="text-secondary block text-[10px] uppercase">Published</span>
-            <span className="font-semibold text-primary">{metaCounts.published}</span>
+          <div className="border border-[#C5A572]/40 bg-[#FAF7F2] px-3 py-2 text-center shadow-sm">
+            <span className="text-secondary block text-[10px] uppercase tracking-wider">Published</span>
+            <span className="font-semibold text-primary text-sm">{metaCounts.published}</span>
           </div>
-          <div className="border border-border px-3 py-1.5 bg-white text-center">
-            <span className="text-secondary block text-[10px] uppercase">Drafts</span>
-            <span className="font-semibold text-secondary">{metaCounts.draft}</span>
+          <div className="border border-border px-3 py-2 bg-white text-center shadow-sm">
+            <span className="text-secondary block text-[10px] uppercase tracking-wider">Drafts</span>
+            <span className="font-semibold text-secondary text-sm">{metaCounts.draft}</span>
           </div>
         </div>
       </div>
@@ -637,14 +637,14 @@ export default function AdminDashboardPage() {
       {/* 3D MODEL PREVIEW MODAL                                    */}
       {/* ========================================================= */}
       {previewProduct && (
-        <div className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-4">
-          <div className="bg-white border border-border max-w-3xl w-full p-6 space-y-4 max-h-[90vh] overflow-y-auto">
+        <div className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-3 sm:p-6 backdrop-blur-sm">
+          <div className="bg-white border border-border max-w-3xl w-full p-4 sm:p-6 space-y-4 max-h-[90vh] overflow-y-auto shadow-xl">
             <div className="flex items-center justify-between border-b border-border pb-3">
               <div>
                 <span className="text-[10px] uppercase tracking-wider text-secondary">
                   Admin 3D Preview
                 </span>
-                <h3 className="text-lg font-semibold text-foreground">
+                <h3 className="text-base sm:text-lg font-semibold text-foreground">
                   {previewProduct.name}
                 </h3>
               </div>
@@ -664,7 +664,7 @@ export default function AdminDashboardPage() {
                 alt={previewProduct.name}
                 cameraControls
                 autoRotate
-                className="w-full h-[360px] sm:h-[420px]"
+                className="w-full h-[280px] sm:h-[400px]"
               />
             </div>
 

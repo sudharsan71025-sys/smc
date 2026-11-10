@@ -12,25 +12,25 @@ export function Navbar() {
   const isAuthPage = pathname === '/login' || pathname === '/register';
 
   return (
-    <header className="w-full border-b border-border bg-white sticky top-0 z-50">
-      <div className="container max-w-7xl mx-auto flex h-16 items-center justify-between px-6 sm:px-8">
-        {/* Simple Website Identity */}
-        <Link href="/" className="flex items-center space-x-3 group">
-          <span className="w-2 h-2 bg-primary inline-block" />
-          <span className="text-sm font-semibold tracking-wider text-foreground uppercase">
-            SMC <span className="font-light text-secondary">Doors & Windows</span>
+    <header className="w-full border-b border-border bg-white sticky top-0 z-50 backdrop-blur-md bg-white/95">
+      <div className="container max-w-7xl mx-auto flex h-16 items-center justify-between px-4 sm:px-6 lg:px-8">
+        {/* Brand Identity */}
+        <Link href="/" className="flex items-center space-x-2.5 group select-none">
+          <span className="w-2.5 h-2.5 bg-primary inline-block transition-transform group-hover:scale-110" />
+          <span className="text-xs sm:text-sm font-semibold tracking-wider text-foreground uppercase">
+            SMC <span className="font-light text-secondary hidden xs:inline sm:inline">Doors & Windows</span>
           </span>
         </Link>
 
-        {/* Dynamic Auth Navigation */}
+        {/* Dynamic Navigation */}
         {!isAuthPage && (
-          <nav className="flex items-center space-x-5 text-xs tracking-wide">
+          <nav className="flex items-center space-x-3 sm:space-x-5 text-xs tracking-wide">
             {isAuthenticated ? (
               <>
                 <Link
                   href="/dashboard"
                   className={cn(
-                    'transition-colors hover:text-foreground',
+                    'px-2 py-1 text-xs transition-colors hover:text-foreground',
                     pathname === '/dashboard' ? 'text-foreground font-semibold' : 'text-secondary'
                   )}
                 >
@@ -41,19 +41,20 @@ export function Navbar() {
                   <Link
                     href="/admin"
                     className={cn(
-                      'transition-colors hover:text-foreground',
-                      pathname === '/admin' ? 'text-foreground font-semibold' : 'text-secondary'
+                      'px-2 py-1 text-xs transition-colors hover:text-foreground',
+                      pathname === '/admin' ? 'text-primary font-semibold' : 'text-secondary'
                     )}
                   >
-                    Admin Hub
+                    Admin
                   </Link>
                 )}
 
-                <div className="h-4 w-px bg-border hidden sm:block" />
+                <div className="h-3.5 w-px bg-border hidden sm:block" />
 
-                <div className="hidden sm:flex items-center space-x-2">
-                  <span className="text-secondary truncate max-w-[120px]">{user?.name}</span>
-                  <span className="text-[10px] px-1.5 py-0.5 border border-border text-foreground font-medium uppercase">
+                {/* User Status Pill (Visible on sm+ screens) */}
+                <div className="hidden md:flex items-center space-x-1.5 text-[11px] text-secondary">
+                  <span className="truncate max-w-[120px] font-medium text-foreground">{user?.name}</span>
+                  <span className="text-[9px] px-1.5 py-0.5 border border-border uppercase font-semibold text-secondary">
                     {user?.role}
                   </span>
                 </div>
@@ -61,7 +62,7 @@ export function Navbar() {
                 <button
                   type="button"
                   onClick={logout}
-                  className="text-secondary hover:text-red-600 transition-colors cursor-pointer"
+                  className="text-xs text-secondary hover:text-red-600 transition-colors px-1.5 py-1"
                 >
                   Log Out
                 </button>
@@ -71,7 +72,7 @@ export function Navbar() {
                 <Link
                   href="/login"
                   className={cn(
-                    'transition-colors hover:text-foreground',
+                    'px-2 py-1 text-xs transition-colors hover:text-foreground',
                     pathname === '/login' ? 'text-foreground font-semibold' : 'text-secondary'
                   )}
                 >
@@ -79,9 +80,9 @@ export function Navbar() {
                 </Link>
                 <Link
                   href="/register"
-                  className="text-primary hover:text-primary-hover font-medium transition-colors"
+                  className="text-xs bg-primary text-primary-foreground hover:bg-primary-hover px-3 py-1.5 font-medium transition-colors uppercase tracking-wider text-[11px]"
                 >
-                  Create Account
+                  Register
                 </Link>
               </>
             )}

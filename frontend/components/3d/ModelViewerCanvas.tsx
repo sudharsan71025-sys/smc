@@ -284,15 +284,15 @@ export function ModelViewerCanvas({
 
           {/* Controls HUD Overlay (Visible when model is loaded) */}
           {isLoaded && (
-            <div className="absolute top-3 right-3 flex items-center space-x-1.5 z-10 bg-white/90 border border-border p-1 backdrop-blur-sm shadow-sm">
+            <div className="absolute top-2.5 right-2.5 sm:top-3 sm:right-3 flex items-center space-x-1 sm:space-x-1.5 z-10 bg-white/95 border border-border p-1 backdrop-blur-sm shadow-sm max-w-[calc(100%-1.25rem)] flex-wrap">
               {/* Reset Camera */}
               <button
                 type="button"
                 onClick={handleResetCamera}
                 title="Reset Camera Framing"
-                className="px-2 py-1 text-[11px] text-secondary hover:text-foreground hover:bg-muted/50 transition-colors"
+                className="px-1.5 sm:px-2 py-0.5 sm:py-1 text-[10px] sm:text-[11px] text-secondary hover:text-foreground transition-colors"
               >
-                Reset View
+                Reset
               </button>
 
               <span className="text-border">|</span>
@@ -302,7 +302,7 @@ export function ModelViewerCanvas({
                 type="button"
                 onClick={() => setAutoRotate((prev) => !prev)}
                 title={autoRotate ? 'Stop Rotation' : 'Auto Rotate'}
-                className={`px-2 py-1 text-[11px] transition-colors ${
+                className={`px-1.5 sm:px-2 py-0.5 sm:py-1 text-[10px] sm:text-[11px] transition-colors ${
                   autoRotate
                     ? 'font-semibold text-primary'
                     : 'text-secondary hover:text-foreground'
@@ -318,9 +318,9 @@ export function ModelViewerCanvas({
                 type="button"
                 onClick={handleToggleFullscreen}
                 title="Toggle Fullscreen"
-                className="px-2 py-1 text-[11px] text-secondary hover:text-foreground hover:bg-muted/50 transition-colors"
+                className="px-1.5 sm:px-2 py-0.5 sm:py-1 text-[10px] sm:text-[11px] text-secondary hover:text-foreground transition-colors"
               >
-                {isFullscreen ? 'Exit Full' : 'Fullscreen'}
+                {isFullscreen ? 'Exit' : 'Full'}
               </button>
             </div>
           )}
