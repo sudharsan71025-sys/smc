@@ -211,7 +211,6 @@ export default function ProductViewerPage({
                 <ARLaunchButton
                   glbUrl={glbUrl}
                   usdzUrl={usdzUrl}
-                  thumbnailUrl={product?.thumbnailUrl || product?.imageUrl}
                   title={displayName}
                   placementMode={placementMode}
                   onPlacementModeChange={setPlacementMode}

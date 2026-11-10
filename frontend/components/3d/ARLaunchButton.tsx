@@ -9,7 +9,6 @@ import { RealWorldARExperience } from './RealWorldARExperience';
 interface ARLaunchButtonProps extends ButtonProps {
   glbUrl?: string;
   usdzUrl?: string;
-  thumbnailUrl?: string;
   title: string;
   placementMode?: 'wall' | 'floor';
   onPlacementModeChange?: (mode: 'wall' | 'floor') => void;
