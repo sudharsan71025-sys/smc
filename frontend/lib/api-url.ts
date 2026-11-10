@@ -56,3 +56,20 @@ export function normalizeModelUrl(url?: string | null): string {
 
   return url;
 }
+
+/**
+ * Returns a globally accessible, public HTTPS URL for the 3D model.
+ * Required for Google ARCore Scene Viewer and Apple ARKit Quick Look,
+ * which cannot fetch private intranet IPs (192.168.x.x) or localhost.
+ */
+export function getPublicModelUrl(url?: string | null): string {
+  if (!url) return '';
+  if (url.startsWith('https://') && !url.includes('localhost') && !url.includes('127.0.0.1')) {
+    return url;
+  }
+  const match = url.match(/\/(?:api\/v1\/)?files\/(.+)$/);
+  if (match) {
+    return `https://smc-backend-gt5i.onrender.com/api/v1/files/${match[1]}`;
+  }
+  return url;
+}

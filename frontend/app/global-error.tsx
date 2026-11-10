@@ -1,18 +1,21 @@
 'use client';
 
+import React from 'react';
+
 export default function GlobalError({
+  error,
   reset,
 }: {
   error: Error & { digest?: string };
   reset: () => void;
 }) {
   return (
-    <html>
+    <html lang="en">
       <body className="min-h-screen flex items-center justify-center p-6 bg-background text-foreground font-sans">
         <div className="max-w-md space-y-4 border border-border bg-white p-8 text-center shadow-sm">
           <h2 className="text-lg font-semibold">Application Error</h2>
           <p className="text-xs text-muted-foreground">
-            A critical error occurred. Please refresh or try again.
+            {error?.message || 'A critical error occurred. Please refresh or try again.'}
           </p>
           <button
             onClick={() => reset()}

@@ -3,7 +3,7 @@ import { ApiResponse, ApiErrorResponse } from '@/types/api';
 import { getApiBaseUrl } from '@/lib/api-url';
 
 export const apiClient = axios.create({
-  timeout: 30000,
+  timeout: 60000,
   headers: {
     'Content-Type': 'application/json',
   },
@@ -29,8 +29,15 @@ apiClient.interceptors.request.use(
 apiClient.interceptors.response.use(
   (response) => response.data,
   (error: AxiosError<ApiErrorResponse>) => {
+    let message = error.response?.data?.message || error.message || 'An unexpected error occurred';
+    
+    // Friendly clarification for Render free-tier cold start delays
+    if (error.code === 'ECONNABORTED' || message.includes('timeout') || message.includes('Network Error')) {
+      message = 'The cloud server took longer than expected to respond (waking up from standby). Please try again.';
+    }
+
     const customError = {
-      message: error.response?.data?.message || error.message || 'An unexpected error occurred',
+      message,
       statusCode: error.response?.status || 500,
       errors: error.response?.data?.errors,
     };

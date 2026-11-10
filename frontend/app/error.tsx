@@ -3,7 +3,7 @@
 import { useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 
-export default function ErrorBoundary({
+export default function Error({
   error,
   reset,
 }: {
@@ -19,7 +19,7 @@ export default function ErrorBoundary({
       <div className="max-w-md space-y-4 border border-border bg-card p-8 shadow-sm">
         <h2 className="text-lg font-semibold text-foreground">Something went wrong</h2>
         <p className="text-xs text-secondary">
-          An unexpected error occurred while rendering this page.
+          {error?.message || 'An unexpected error occurred while rendering this page.'}
         </p>
         <div className="pt-2 flex justify-center space-x-3">
           <Button variant="gold" size="sm" onClick={() => reset()} className="text-xs uppercase">

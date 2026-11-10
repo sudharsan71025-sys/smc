@@ -4,8 +4,7 @@ import React, { useRef, useEffect, useState, useCallback, useMemo } from 'react'
 import * as THREE from 'three';
 import { GLTFLoader, GLTF } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { normalizeModelUrl } from '@/lib/api-url';
-import { buildSceneViewerUrl, buildQuickLookUrl } from '@/utils/3d-helpers';
-import { X, Sparkles } from 'lucide-react';
+import { X } from 'lucide-react';
 
 interface WebXRNavigator {
   xr?: {
@@ -17,17 +16,12 @@ interface WebXRNavigator {
 interface RealWorldARExperienceProps {
   glbUrl: string;
   usdzUrl?: string;
-  thumbnailUrl?: string;
-  productName: string;
   isOpen: boolean;
   onClose: () => void;
 }
 
 export function RealWorldARExperience({
   glbUrl,
-  usdzUrl,
-  thumbnailUrl,
-  productName,
   isOpen,
   onClose,
 }: RealWorldARExperienceProps) {
@@ -37,20 +31,7 @@ export function RealWorldARExperience({
 
   // AR State
   const [isPlaced, setIsPlaced] = useState(false);
-  const [modelThumbnail, setModelThumbnail] = useState<string | null>(thumbnailUrl || null);
-  const [isProductActive, setIsProductActive] = useState(true);
   const [isWebXRActive, setIsWebXRActive] = useState(false);
-
-  // Platform detection
-  const isIOS = useMemo(() => {
-    if (typeof window === 'undefined') return false;
-    return /iPad|iPhone|iPod/.test(navigator.userAgent) && !('MSStream' in window);
-  }, []);
-
-  const isAndroid = useMemo(() => {
-    if (typeof window === 'undefined') return false;
-    return /android/i.test(navigator.userAgent);
-  }, []);
 
   // Three.js Scene References
   const sceneRef = useRef<THREE.Scene | null>(null);
@@ -73,61 +54,28 @@ export function RealWorldARExperience({
   const isDraggingRef = useRef(false);
   const raycasterRef = useRef<THREE.Raycaster>(new THREE.Raycaster());
 
-  // Normalized GLB & USDZ Model URLs
+  // Normalized GLB Model URL
   const normalizedGlbUrl = useMemo(() => normalizeModelUrl(glbUrl), [glbUrl]);
-  const normalizedUsdzUrl = useMemo(() => normalizeModelUrl(usdzUrl), [usdzUrl]);
+
+  // Initial reference orientation for smooth rotation offset
+  const initialAlphaRef = useRef<number | null>(null);
 
   // =========================================================================
-  // 1. GENERATE DYNAMIC 2D SNAPSHOT OF 3D MODEL (FOR CIRCULAR THUMBNAIL)
-  // =========================================================================
-  const generateModelThumbnail = useCallback((modelGroup: THREE.Group) => {
-    try {
-      const snapScene = new THREE.Scene();
-      const snapCamera = new THREE.PerspectiveCamera(45, 1, 0.1, 10);
-      snapCamera.position.set(0, 1.0, 3.2);
-
-      const snapLight = new THREE.DirectionalLight(0xffffff, 2.5);
-      snapLight.position.set(1, 2, 2);
-      snapScene.add(snapLight);
-      snapScene.add(new THREE.AmbientLight(0xffffff, 1.5));
-
-      const clone = modelGroup.clone();
-      clone.visible = true;
-      snapScene.add(clone);
-
-      const snapRenderer = new THREE.WebGLRenderer({
-        antialias: true,
-        alpha: true,
-        preserveDrawingBuffer: true,
-      });
-      snapRenderer.setSize(160, 160);
-      snapRenderer.render(snapScene, snapCamera);
-
-      const dataUrl = snapRenderer.domElement.toDataURL('image/png');
-      setModelThumbnail(dataUrl);
-
-      snapRenderer.dispose();
-    } catch {
-      // Fallback silently if offscreen snapshot is unavailable
-    }
-  }, []);
-
-  // =========================================================================
-  // 2. SETUP THREE.JS SCENE & ARCHITECTURAL LIGHTING
+  // 1. SETUP THREE.JS SCENE & NATURAL ARCHITECTURAL LIGHTING
   // =========================================================================
   const initThreeScene = useCallback(() => {
     const scene = new THREE.Scene();
     sceneRef.current = scene;
 
     // Realistic natural lighting
-    const ambientLight = new THREE.AmbientLight(0xffffff, 1.5);
+    const ambientLight = new THREE.AmbientLight(0xffffff, 1.6);
     scene.add(ambientLight);
 
-    const sunLight = new THREE.DirectionalLight(0xffffff, 2.4);
+    const sunLight = new THREE.DirectionalLight(0xffffff, 2.5);
     sunLight.position.set(2, 4, 3);
     scene.add(sunLight);
 
-    const fillLight = new THREE.DirectionalLight(0xffffff, 0.9);
+    const fillLight = new THREE.DirectionalLight(0xffffff, 1.0);
     fillLight.position.set(-2, 1, 2);
     scene.add(fillLight);
 
@@ -136,12 +84,12 @@ export function RealWorldARExperience({
       65,
       window.innerWidth / window.innerHeight,
       0.01,
-      30
+      40
     );
     camera.position.set(0, 1.4, 0);
     cameraRef.current = camera;
 
-    // Subtle gold placement reticle indicating detected real-world surface
+    // Subtle placement reticle indicating detected real-world surface
     const reticleGroup = new THREE.Group();
     reticleGroup.visible = false;
 
@@ -163,7 +111,7 @@ export function RealWorldARExperience({
   }, []);
 
   // =========================================================================
-  // 3. LOAD 3D MODEL & CALIBRATE 1:1 REAL-WORLD SCALE
+  // 2. LOAD 3D MODEL & CALIBRATE 1:1 REAL-WORLD PHYSICAL SCALE
   // =========================================================================
   const loadModel = useCallback(
     async (scene: THREE.Scene) => {
@@ -177,18 +125,18 @@ export function RealWorldARExperience({
 
         const rawModel = gltf.scene;
 
-        // Compute Bounding Box to normalize scale (1 unit = 1 meter in real world)
+        // Bounding Box calibration: 1 unit = 1 meter in real world
         const box = new THREE.Box3().setFromObject(rawModel);
         const size = new THREE.Vector3();
         box.getSize(size);
 
         let scaleFactor = 1.0;
         if (size.y > 500) {
-          scaleFactor = 0.001; // Exported in mm
+          scaleFactor = 0.001; // Model was modeled in millimeters
         } else if (size.y > 30) {
-          scaleFactor = 0.01; // Exported in cm
+          scaleFactor = 0.01; // Model was modeled in centimeters
         } else {
-          scaleFactor = 1.0; // Exported in standard meters
+          scaleFactor = 1.0; // Standard meters
         }
 
         rawModel.scale.set(scaleFactor, scaleFactor, scaleFactor);
@@ -196,8 +144,8 @@ export function RealWorldARExperience({
 
         // Center Pivot:
         // - X: centered at 0
-        // - Y: bottom at 0 (so door sits flush on floor threshold)
-        // - Z: back flush with wall surface (so frame mounts against wall)
+        // - Y: bottom at 0 (door rests on floor threshold)
+        // - Z: back flush with wall surface (Z = 0)
         const calibratedBox = new THREE.Box3().setFromObject(rawModel);
         const calibratedCenter = new THREE.Vector3();
         calibratedBox.getCenter(calibratedCenter);
@@ -209,24 +157,19 @@ export function RealWorldARExperience({
         // Wrap inside anchor group - attached directly to SCENE in WORLD SPACE (never to camera)
         const anchorGroup = new THREE.Group();
         anchorGroup.add(rawModel);
-        anchorGroup.visible = false; // Initially invisible until user taps a location
+        anchorGroup.visible = false; // Initially hidden until user taps to anchor to wall
 
         scene.add(anchorGroup);
         modelRef.current = anchorGroup;
-
-        // If thumbnail not provided by admin, generate 2D thumbnail from model
-        if (!thumbnailUrl) {
-          generateModelThumbnail(anchorGroup);
-        }
       } catch (err: unknown) {
         console.error('Failed to load GLB model for AR:', err);
       }
     },
-    [normalizedGlbUrl, thumbnailUrl, generateModelThumbnail]
+    [normalizedGlbUrl]
   );
 
   // =========================================================================
-  // 4. WEBXR 6DOF ARCORE WORLD TRACKING SESSION
+  // 3. WEBXR 6DOF ARCORE WORLD TRACKING SESSION
   // =========================================================================
   const startWebXRSession = useCallback(async () => {
     if (!('xr' in navigator)) return false;
@@ -280,7 +223,7 @@ export function RealWorldARExperience({
   }, [onClose]);
 
   // =========================================================================
-  // 5. HARDWARE CAMERA FEED (FALLBACK)
+  // 4. HARDWARE CAMERA FEED WITH TRUE 3D WORLD-SPACE ORIENTATION
   // =========================================================================
   const startCamera = useCallback(async () => {
     try {
@@ -299,16 +242,25 @@ export function RealWorldARExperience({
         await videoRef.current.play();
       }
 
-      // Device motion tracking for camera rotation
+      // Full 3D orientation tracking for camera in world space
+      // When phone rotates left/right (yaw), camera rotates in world space,
+      // so the placed door stays anchored to its world coordinates and leaves view naturally.
       const handleOrientation = (e: DeviceOrientationEvent) => {
         if (!cameraRef.current) return;
-        if (e.beta !== null && e.gamma !== null) {
-          const pitch = (e.beta - 90) * (Math.PI / 180) * 0.5;
-          const roll = e.gamma * (Math.PI / 180) * 0.3;
-          cameraRef.current.rotation.x = pitch;
-          cameraRef.current.rotation.z = -roll;
+        if (e.alpha !== null && e.beta !== null && e.gamma !== null) {
+          if (initialAlphaRef.current === null) {
+            initialAlphaRef.current = e.alpha;
+          }
+          const degToRad = Math.PI / 180;
+          const deltaAlpha = (e.alpha - initialAlphaRef.current) * degToRad;
+          const pitch = (e.beta - 90) * degToRad * 0.8;
+          const roll = -e.gamma * degToRad * 0.5;
+
+          // Apply rotation in world space (order: YXZ)
+          cameraRef.current.rotation.set(pitch, -deltaAlpha, roll, 'YXZ');
         }
       };
+
       window.addEventListener('deviceorientation', handleOrientation);
     } catch (err: unknown) {
       console.warn('Camera access error:', err);
@@ -327,7 +279,7 @@ export function RealWorldARExperience({
   }, []);
 
   // =========================================================================
-  // 6. TAP TO PLACE 3D MODEL AT REAL WORLD-SPACE LOCATION
+  // 5. TAP TO PLACE 3D MODEL AT REAL WORLD-SPACE LOCATION
   // =========================================================================
   const handlePlaceAtWorldPose = useCallback(
     (worldPosition: THREE.Vector3, worldQuaternion?: THREE.Quaternion) => {
@@ -394,7 +346,7 @@ export function RealWorldARExperience({
   );
 
   // =========================================================================
-  // 7. TOUCH DRAG-AND-DROP WORLD-SPACE REPOSITIONING
+  // 6. TOUCH DRAG-AND-DROP WORLD-SPACE REPOSITIONING
   // =========================================================================
   const handleTouchStart = (e: React.TouchEvent) => {
     if (e.touches.length !== 1) return;
@@ -509,40 +461,7 @@ export function RealWorldARExperience({
   };
 
   // =========================================================================
-  // 8. NATIVE PLATFORM LAUNCHERS (100% 6DOF WORLD ANCHORING)
-  // =========================================================================
-  const handleLaunchNativeAR = () => {
-    if (isIOS && normalizedUsdzUrl) {
-      // Native Apple ARKit Quick Look (LiDAR & VIO World Anchoring)
-      const qlUrl = buildQuickLookUrl({
-        usdzUrl: normalizedUsdzUrl,
-        canonicalWebPageURL: typeof window !== 'undefined' ? window.location.href : '',
-        allowsContentScaling: false,
-      });
-      const a = document.createElement('a');
-      a.setAttribute('rel', 'ar');
-      a.setAttribute('href', qlUrl);
-      const img = document.createElement('img');
-      a.appendChild(img);
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-    } else if (isAndroid && normalizedGlbUrl) {
-      // Native Android ARCore Scene Viewer (Physical Wall Anchoring)
-      const intentUrl = buildSceneViewerUrl({
-        glbUrl: normalizedGlbUrl,
-        title: productName,
-        linkUrl: typeof window !== 'undefined' ? window.location.href : '',
-        mode: 'ar_only',
-        resizable: false,
-        verticalPlacement: true,
-      });
-      window.location.href = intentUrl;
-    }
-  };
-
-  // =========================================================================
-  // 9. MAIN RUNTIME RENDER LOOP (WITH ARCORE 6DOF VIEWER TRACKING)
+  // 7. MAIN RUNTIME RENDER LOOP (WITH ARCORE 6DOF VIEWER TRACKING)
   // =========================================================================
   useEffect(() => {
     if (!isOpen) return;
@@ -570,9 +489,6 @@ export function RealWorldARExperience({
 
     // 6DOF Animation Loop
     const renderLoop = (_time: number, frame?: XRFrame) => {
-      // In WebXR, Three.js camera position & orientation are updated automatically
-      // by ARCore's 6DOF tracking (frame.getViewerPose).
-      // The model remains fixed at its world-space anchor in scene!
       if (frame && xrHitTestSourceRef.current && xrRefSpaceRef.current && !isPlaced) {
         const hitResults = frame.getHitTestResults(xrHitTestSourceRef.current);
         if (hitResults.length > 0) {
@@ -610,9 +526,8 @@ export function RealWorldARExperience({
     return () => {
       window.removeEventListener('resize', handleResize);
       renderer.setAnimationLoop(null);
-      const animId = animationFrameIdRef.current;
-      if (animId) {
-        cancelAnimationFrame(animId);
+      if (animationFrameIdRef.current) {
+        cancelAnimationFrame(animationFrameIdRef.current);
       }
       stopCamera();
       if (rendererRef.current) {
@@ -648,7 +563,7 @@ export function RealWorldARExperience({
       {/* 2. WebGL 3D Layer (6DOF World Anchoring) */}
       <div ref={mountRef} className="absolute inset-0 w-full h-full z-10 pointer-events-none" />
 
-      {/* 3. Minimal Discreet Exit Button (Top Right) */}
+      {/* 3. Minimal Discreet Exit Button (Top Right) - The ONLY UI element */}
       <button
         type="button"
         onClick={onClose}
@@ -657,54 +572,6 @@ export function RealWorldARExperience({
       >
         <X className="w-5 h-5" />
       </button>
-
-      {/* 4. Native ARKit / ARCore One-Tap Pill (Top Left - Discreet) */}
-      {((isIOS && normalizedUsdzUrl) || isAndroid) && (
-        <button
-          type="button"
-          onClick={handleLaunchNativeAR}
-          className="absolute top-4 left-4 z-30 px-3 py-1.5 rounded-full bg-black/40 hover:bg-black/70 border border-white/20 text-white/90 text-[11px] font-medium flex items-center space-x-1.5 backdrop-blur-sm shadow-md active:scale-95 transition-all"
-        >
-          <Sparkles className="w-3.5 h-3.5 text-[#C5A572]" />
-          <span>{isIOS ? 'Native Apple ARKit' : 'Native Google ARCore'}</span>
-        </button>
-      )}
-
-      {/* 5. THE ONLY PROMINENT UI CONTROL: Circular Product Thumbnail (Bottom Center) */}
-      <div className="absolute bottom-8 left-1/2 -translate-x-1/2 z-30 pointer-events-auto">
-        <button
-          type="button"
-          onClick={() => setIsProductActive((prev) => !prev)}
-          className={`relative w-18 h-18 sm:w-20 sm:h-20 rounded-full border-2 ${
-            isProductActive ? 'border-[#C5A572] ring-4 ring-[#C5A572]/40' : 'border-white/60'
-          } bg-white/95 shadow-2xl p-1 flex items-center justify-center active:scale-90 transition-transform duration-150 focus:outline-none`}
-          title="Selected Door/Window Model"
-        >
-          {modelThumbnail ? (
-            // eslint-disable-next-line @next/next/no-img-element
-            <img
-              src={modelThumbnail}
-              alt="Product Thumbnail"
-              className="w-full h-full object-contain rounded-full"
-            />
-          ) : (
-            // Architectural Door Silhouette if thumbnail is loading
-            <div className="w-full h-full rounded-full bg-[#FAF7F2] flex items-center justify-center border border-[#C5A572]/30">
-              <div className="w-6 h-10 border-2 border-[#202020] rounded-t-sm flex items-center justify-end pr-0.5">
-                <div className="w-1 h-1 rounded-full bg-[#C5A572]" />
-              </div>
-            </div>
-          )}
-
-          {/* Golden Active Status Ring */}
-          {isProductActive && (
-            <span className="absolute -top-1 -right-1 flex h-3.5 w-3.5">
-              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-[#C5A572] opacity-75" />
-              <span className="relative inline-flex rounded-full h-3.5 w-3.5 bg-[#C5A572]" />
-            </span>
-          )}
-        </button>
-      </div>
     </div>
   );
 }

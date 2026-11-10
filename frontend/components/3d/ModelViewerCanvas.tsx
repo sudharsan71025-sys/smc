@@ -102,6 +102,9 @@ export function ModelViewerCanvas({
       const customEvent = event as CustomEvent<{ totalProgress: number }>;
       const progress = customEvent.detail?.totalProgress ?? 0;
       setLoadProgress(Math.min(100, Math.round(progress * 100)));
+      if (progress >= 1) {
+        setIsLoaded(true);
+      }
     };
 
     const handleLoad = () => {
@@ -112,6 +115,13 @@ export function ModelViewerCanvas({
       setErrorMessage(null);
       setLoadDuration(duration);
       onModelLoadedRef.current?.(duration);
+    };
+
+    const handleVisibility = (event: Event) => {
+      const customEvent = event as CustomEvent<{ visible: boolean }>;
+      if (customEvent.detail?.visible) {
+        setIsLoaded(true);
+      }
     };
 
     const handleError = (event: Event) => {
@@ -129,25 +139,27 @@ export function ModelViewerCanvas({
     el.addEventListener('progress', handleProgress);
     el.addEventListener('load', handleLoad);
     el.addEventListener('error', handleError);
+    el.addEventListener('model-visibility', handleVisibility);
 
     // If the element is already loaded, resolve immediately
-    if (el.loaded) {
+    if (el.loaded || (el as unknown as { modelIsVisible?: boolean }).modelIsVisible) {
       handleLoad();
     }
 
     // Safety polling: in case the load event fired before listeners were registered
     const pollTimer = setInterval(() => {
-      if (el.loaded) {
+      if (el.loaded || (el as unknown as { modelIsVisible?: boolean }).modelIsVisible) {
         handleLoad();
         clearInterval(pollTimer);
       }
-    }, 250);
+    }, 200);
 
     return () => {
       clearInterval(pollTimer);
       el.removeEventListener('progress', handleProgress);
       el.removeEventListener('load', handleLoad);
       el.removeEventListener('error', handleError);
+      el.removeEventListener('model-visibility', handleVisibility);
     };
   }, [normalizedSrc, isReady, modelViewerRef]);
 
@@ -268,7 +280,7 @@ export function ModelViewerCanvas({
 
           {/* Model Loading Progress Overlay */}
           {!isLoaded && !errorMessage && (
-            <div className="absolute inset-0 bg-white/90 backdrop-blur-sm flex flex-col items-center justify-center p-6 space-y-3 z-10">
+            <div className="absolute inset-0 bg-white/90 backdrop-blur-sm flex flex-col items-center justify-center p-6 space-y-3 z-10 pointer-events-none transition-opacity duration-300">
               <div className="w-8 h-8 border-2 border-border border-t-[#C5A572] rounded-full animate-spin" />
               <div className="text-center space-y-1">
                 <p className="text-xs font-medium text-foreground">

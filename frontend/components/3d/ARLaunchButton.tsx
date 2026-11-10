@@ -1,7 +1,8 @@
 'use client';
 
 import React, { useState, useMemo } from 'react';
-import { normalizeModelUrl } from '@/lib/api-url';
+import { normalizeModelUrl, getPublicModelUrl } from '@/lib/api-url';
+import { buildSceneViewerUrl, buildQuickLookUrl } from '@/utils/3d-helpers';
 import { Button, ButtonProps } from '@/components/ui/button';
 import { RealWorldARExperience } from './RealWorldARExperience';
 
@@ -17,7 +18,6 @@ interface ARLaunchButtonProps extends ButtonProps {
 export function ARLaunchButton({
   glbUrl,
   usdzUrl,
-  thumbnailUrl,
   title,
   placementMode = 'wall',
   onPlacementModeChange,
@@ -29,13 +29,63 @@ export function ARLaunchButton({
   // Normalize URLs to guarantee active network/cloud host connectivity
   const normalizedGlbUrl = useMemo(() => normalizeModelUrl(glbUrl), [glbUrl]);
   const normalizedUsdzUrl = useMemo(() => normalizeModelUrl(usdzUrl), [usdzUrl]);
+  const publicGlbUrl = useMemo(() => getPublicModelUrl(glbUrl), [glbUrl]);
+  const publicUsdzUrl = useMemo(() => getPublicModelUrl(usdzUrl), [usdzUrl]);
+
+  // Platform detection
+  const isIOS = useMemo(() => {
+    if (typeof window === 'undefined') return false;
+    return /iPad|iPhone|iPod/.test(navigator.userAgent) && !('MSStream' in window);
+  }, []);
+
+  const isAndroid = useMemo(() => {
+    if (typeof window === 'undefined') return false;
+    return /android/i.test(navigator.userAgent);
+  }, []);
 
   // Launch the in-camera Real-World AR experience directly
   const handleMainARClick = () => {
-    if (!normalizedGlbUrl) {
+    if (!normalizedGlbUrl && !publicGlbUrl) {
       alert('Product 3D model is not available for AR inspection.');
       return;
     }
+
+    // 1. Android: Native Google ARCore Scene Viewer
+    // Runs OS-level Visual-Inertial Odometry (VIO) with vertical wall plane detection,
+    // persistent 6DOF world anchor, and 1:1 real-world physical scale.
+    if (isAndroid && publicGlbUrl) {
+      const intentUrl = buildSceneViewerUrl({
+        glbUrl: publicGlbUrl,
+        title,
+        linkUrl: typeof window !== 'undefined' ? window.location.href : '',
+        mode: 'ar_only',
+        resizable: false,
+        verticalPlacement: placementMode === 'wall',
+      });
+      window.location.href = intentUrl;
+      return;
+    }
+
+    // 2. iOS: Native Apple ARKit Quick Look
+    // Runs Apple's native LiDAR/camera ARKit engine with vertical wall anchoring.
+    if (isIOS && publicUsdzUrl) {
+      const qlUrl = buildQuickLookUrl({
+        usdzUrl: publicUsdzUrl,
+        canonicalWebPageURL: typeof window !== 'undefined' ? window.location.href : '',
+        allowsContentScaling: false,
+      });
+      const a = document.createElement('a');
+      a.setAttribute('rel', 'ar');
+      a.setAttribute('href', qlUrl);
+      const img = document.createElement('img');
+      a.appendChild(img);
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      return;
+    }
+
+    // 3. Desktop / WebXR Fallback: Clean full-screen camera AR
     setShowRealWorldAR(true);
   };
 
@@ -89,8 +139,6 @@ export function ARLaunchButton({
         <RealWorldARExperience
           glbUrl={normalizedGlbUrl}
           usdzUrl={normalizedUsdzUrl}
-          thumbnailUrl={thumbnailUrl}
-          productName={title}
           isOpen={showRealWorldAR}
           onClose={() => setShowRealWorldAR(false)}
         />

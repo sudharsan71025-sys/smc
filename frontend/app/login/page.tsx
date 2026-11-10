@@ -28,6 +28,17 @@ export default function LoginPage() {
         router.push('/dashboard');
       }
     }
+
+    // Pre-warm backend on page load to eliminate Render cold start delays
+    const warmUpBackend = async () => {
+      try {
+        const { getApiBaseUrl } = await import('@/lib/api-url');
+        fetch(`${getApiBaseUrl()}/health`, { mode: 'cors' }).catch(() => {});
+      } catch {
+        // Silently ignore pre-warm errors
+      }
+    };
+    warmUpBackend();
   }, [router]);
 
   const validate = (): boolean => {
