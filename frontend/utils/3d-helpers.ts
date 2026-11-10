@@ -44,6 +44,23 @@ export const checkARCapabilities = (): ARCapabilities => {
   };
 };
 
+/**
+ * Checks whether the client browser can genuinely initiate a WebXR immersive-ar session.
+ * On Android Chrome with Google Play Services for AR installed, this returns true.
+ * On iOS Safari (where Apple blocks WebXR immersive-ar), this returns false.
+ */
+export const checkImmersiveARSupport = async (): Promise<boolean> => {
+  if (typeof window === 'undefined' || !('xr' in navigator)) {
+    return false;
+  }
+  try {
+    const supported = await navigator.xr?.isSessionSupported('immersive-ar');
+    return Boolean(supported);
+  } catch {
+    return false;
+  }
+};
+
 export interface SceneViewerOptions {
   glbUrl: string;
   title: string;
