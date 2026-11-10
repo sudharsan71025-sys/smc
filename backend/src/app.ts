@@ -19,9 +19,10 @@ export const createApp = (): Application => {
     })
   );
 
-  // CORS setup - allows local dev, configured client origin, and Vercel production/preview deployments
+  // CORS setup - allows local dev, configured client origin, Render and Vercel production/preview deployments
+  const configuredOrigins = env.CLIENT_ORIGIN.split(',').map((o) => o.trim());
   const allowedOrigins = [
-    env.CLIENT_ORIGIN,
+    ...configuredOrigins,
     'http://localhost:3000',
     'http://127.0.0.1:3000',
   ];
@@ -33,7 +34,8 @@ export const createApp = (): Application => {
         if (
           !origin ||
           allowedOrigins.includes(origin) ||
-          origin.endsWith('.vercel.app')
+          origin.endsWith('.vercel.app') ||
+          origin.endsWith('.onrender.com')
         ) {
           callback(null, true);
         } else {
