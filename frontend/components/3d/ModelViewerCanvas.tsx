@@ -1,8 +1,9 @@
 'use client';
 
-import React, { useRef, useState, useEffect, useCallback } from 'react';
+import React, { useRef, useState, useEffect, useCallback, useMemo } from 'react';
 import { useModelViewer } from '@/hooks/useModelViewer';
 import { Button } from '@/components/ui/button';
+import { normalizeModelUrl } from '@/lib/api-url';
 
 interface ModelViewerCanvasProps {
   src?: string;
@@ -51,17 +52,35 @@ export function ModelViewerCanvas({
   const [loadDuration, setLoadDuration] = useState<number | null>(null);
   const [isFullscreen, setIsFullscreen] = useState(false);
 
+  // Stable callback references to prevent infinite reload loops
+  const onModelLoadedRef = useRef(onModelLoaded);
+  onModelLoadedRef.current = onModelLoaded;
+
+  const onModelErrorRef = useRef(onModelError);
+  onModelErrorRef.current = onModelError;
+
+  const lastLoadedSrcRef = useRef<string>('');
+
+  // Normalize model URLs to active host
+  const normalizedSrc = useMemo(() => normalizeModelUrl(src), [src]);
+  const normalizedIosSrc = useMemo(() => normalizeModelUrl(iosSrc), [iosSrc]);
+
   // Track start time for performance measurement
   const loadStartTimeRef = useRef<number>(Date.now());
 
   // Attach model-viewer DOM event listeners
   useEffect(() => {
     const el = modelViewerRef.current;
-    if (!el || !src) return;
+    if (!el || !normalizedSrc) return;
 
-    el.setAttribute('src', src);
-    if (iosSrc) {
-      el.setAttribute('ios-src', iosSrc);
+    // If this model source is already loaded, keep it loaded and do not reset
+    if (lastLoadedSrcRef.current === normalizedSrc && isLoaded) {
+      return;
+    }
+
+    el.setAttribute('src', normalizedSrc);
+    if (normalizedIosSrc) {
+      el.setAttribute('ios-src', normalizedIosSrc);
     }
 
     loadStartTimeRef.current = Date.now();
@@ -77,13 +96,12 @@ export function ModelViewerCanvas({
 
     const handleLoad = () => {
       const duration = Date.now() - loadStartTimeRef.current;
+      lastLoadedSrcRef.current = normalizedSrc;
       setLoadProgress(100);
       setIsLoaded(true);
       setErrorMessage(null);
       setLoadDuration(duration);
-      if (onModelLoaded) {
-        onModelLoaded(duration);
-      }
+      onModelLoadedRef.current?.(duration);
     };
 
     const handleError = (event: Event) => {
@@ -95,9 +113,7 @@ export function ModelViewerCanvas({
           : 'WebGL 3D rendering error encountered while displaying model.';
       setErrorMessage(msg);
       setIsLoaded(false);
-      if (onModelError) {
-        onModelError(msg);
-      }
+      onModelErrorRef.current?.(msg);
     };
 
     el.addEventListener('progress', handleProgress);
@@ -109,7 +125,7 @@ export function ModelViewerCanvas({
       el.removeEventListener('load', handleLoad);
       el.removeEventListener('error', handleError);
     };
-  }, [src, iosSrc, isReady, modelViewerRef, onModelLoaded, onModelError]);
+  }, [normalizedSrc, normalizedIosSrc, isReady, modelViewerRef]);
 
   // Reset Camera View
   const handleResetCamera = useCallback(() => {
@@ -185,8 +201,8 @@ export function ModelViewerCanvas({
         <div className="w-full h-full relative">
           {React.createElement('model-viewer', {
             ref: modelViewerRef,
-            src,
-            'ios-src': iosSrc,
+            src: normalizedSrc,
+            'ios-src': normalizedIosSrc,
             alt,
             poster,
             'camera-controls': cameraControls ? '' : undefined,

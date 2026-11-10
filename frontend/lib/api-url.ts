@@ -38,3 +38,21 @@ export function getApiBaseUrl(): string {
   // 3. Fallback for desktop localhost development
   return envUrl || 'http://localhost:5000/api/v1';
 }
+
+/**
+ * Normalizes any 3D model URL to point to the active backend host.
+ * This guarantees that models stored with localhost:5000 load seamlessly
+ * when accessed via mobile Wi-Fi (192.168.x.x) or Render cloud.
+ */
+export function normalizeModelUrl(url?: string | null): string {
+  if (!url) return '';
+  const baseUrl = getApiBaseUrl();
+
+  // Match /api/v1/files/:id/:name or /files/:id/:name
+  const match = url.match(/\/(?:api\/v1\/)?files\/(.+)$/);
+  if (match) {
+    return `${baseUrl}/files/${match[1]}`;
+  }
+
+  return url;
+}

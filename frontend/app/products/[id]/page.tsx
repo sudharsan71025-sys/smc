@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, use } from 'react';
+import React, { useState, useEffect, use, useCallback } from 'react';
 import Link from 'next/link';
 import { ModelViewerCanvas } from '@/components/3d/ModelViewerCanvas';
 import { ARLaunchButton } from '@/components/3d/ARLaunchButton';
@@ -27,6 +27,10 @@ export default function ProductViewerPage({
   const [errorMessage, setErrorMessage] = useState('');
   const [loadTimeMs, setLoadTimeMs] = useState<number | null>(null);
   const [placementMode, setPlacementMode] = useState<'wall' | 'floor'>('wall');
+
+  const handleModelLoaded = useCallback((ms: number) => {
+    setLoadTimeMs(ms);
+  }, []);
 
   useEffect(() => {
     const fetchProduct = async () => {
@@ -130,7 +134,7 @@ export default function ProductViewerPage({
               autoRotate={false}
               arPlacement={placementMode}
               className="w-full h-[420px] sm:h-[540px] lg:h-[620px]"
-              onModelLoaded={(ms) => setLoadTimeMs(ms)}
+              onModelLoaded={handleModelLoaded}
             />
 
             {/* Gesture Guide & Shortcuts */}
