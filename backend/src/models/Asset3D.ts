@@ -1,4 +1,4 @@
-import mongoose, { Schema, Document } from 'mongoose';
+import mongoose, { Schema, Document, Types } from 'mongoose';
 
 export type AssetFormat = 'glb' | 'gltf' | 'usdz' | 'texture' | 'hdr';
 export type LodLevel = 'lod0' | 'lod1' | 'lod2';
@@ -8,7 +8,8 @@ export interface IAsset3D extends Document {
   originalFileName: string;
   format: AssetFormat;
   url: string;
-  s3Key: string;
+  fileId?: Types.ObjectId;
+  fileKey?: string;
   bucket: string;
   fileSize: number; // in bytes
   mimeType: string;
@@ -38,8 +39,9 @@ const Asset3DSchema = new Schema<IAsset3D>(
       index: true,
     },
     url: { type: String, required: true },
-    s3Key: { type: String, required: true, index: true },
-    bucket: { type: String, required: true },
+    fileId: { type: Schema.Types.ObjectId, index: true },
+    fileKey: { type: String, index: true },
+    bucket: { type: String, default: 'models' },
     fileSize: { type: Number, required: true },
     mimeType: { type: String, required: true },
     dimensions: {

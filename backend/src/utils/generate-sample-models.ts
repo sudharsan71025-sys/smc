@@ -1,7 +1,7 @@
 import fs from 'fs';
 import path from 'path';
 import zlib from 'zlib';
-import { LOCAL_UPLOADS_DIR } from '../config/storage.js';
+import { storageService } from '../services/storageService.js';
 import { db } from '../config/database.js';
 import { Product } from '../models/Product.js';
 import { User } from '../models/User.js';
@@ -333,11 +333,6 @@ def Xform "Root" (
 export async function seedSample3DProducts() {
   await db.connect();
 
-  const modelsDir = path.join(LOCAL_UPLOADS_DIR, 'models');
-  if (!fs.existsSync(modelsDir)) {
-    fs.mkdirSync(modelsDir, { recursive: true });
-  }
-
   // 1. Generate Door Model (Gold/Bronze Accent: 0.77, 0.65, 0.45)
   // Real door dimensions: 1.0m width, 2.2m height, 0.08m depth
   const doorGlb = buildGlbBox({
@@ -351,8 +346,6 @@ export async function seedSample3DProducts() {
     metalness: 0.8,
     modelName: 'ArchitecturalPivotDoor',
   });
-  const doorGlbPath = path.join(modelsDir, 'architectural-pivot-door.glb');
-  fs.writeFileSync(doorGlbPath, doorGlb);
 
   const doorUsdz = buildUsdzPackage({
     width: 1.0,
@@ -363,8 +356,6 @@ export async function seedSample3DProducts() {
     b: 0.45,
     modelName: 'ArchitecturalPivotDoor',
   });
-  const doorUsdzPath = path.join(modelsDir, 'architectural-pivot-door.usdz');
-  fs.writeFileSync(doorUsdzPath, doorUsdz);
 
   // 2. Generate Window Model (Matte Architectural Charcoal: 0.15, 0.15, 0.15)
   // Real window dimensions: 1.4m width, 1.2m height, 0.08m depth
@@ -379,8 +370,6 @@ export async function seedSample3DProducts() {
     metalness: 0.2,
     modelName: 'MinimalistCasementWindow',
   });
-  const windowGlbPath = path.join(modelsDir, 'minimalist-casement-window.glb');
-  fs.writeFileSync(windowGlbPath, windowGlb);
 
   const windowUsdz = buildUsdzPackage({
     width: 1.4,
@@ -391,10 +380,38 @@ export async function seedSample3DProducts() {
     b: 0.15,
     modelName: 'MinimalistCasementWindow',
   });
-  const windowUsdzPath = path.join(modelsDir, 'minimalist-casement-window.usdz');
-  fs.writeFileSync(windowUsdzPath, windowUsdz);
 
-  logger.info('✅ Generated physical 3D GLB model files with real mesh geometry');
+  // Upload models directly into MongoDB GridFS
+  logger.info('📦 Storing 3D models into MongoDB GridFS (models.files & models.chunks)...');
+  const doorGlbUpload = await storageService.uploadFile(
+    doorGlb,
+    'architectural-pivot-door.glb',
+    'model/gltf-binary',
+    { product: 'Minimalist Architectural Pivot Door', modelType: 'door' }
+  );
+
+  const doorUsdzUpload = await storageService.uploadFile(
+    doorUsdz,
+    'architectural-pivot-door.usdz',
+    'model/vnd.usdz+zip',
+    { product: 'Minimalist Architectural Pivot Door', modelType: 'door' }
+  );
+
+  const windowGlbUpload = await storageService.uploadFile(
+    windowGlb,
+    'minimalist-casement-window.glb',
+    'model/gltf-binary',
+    { product: 'Contemporary Casement Glass Window', modelType: 'window' }
+  );
+
+  const windowUsdzUpload = await storageService.uploadFile(
+    windowUsdz,
+    'minimalist-casement-window.usdz',
+    'model/vnd.usdz+zip',
+    { product: 'Contemporary Casement Glass Window', modelType: 'window' }
+  );
+
+  logger.info('✅ Successfully uploaded 3D GLB & USDZ models into MongoDB GridFS');
 
   // Find admin user to assign createdBy
   const admin = await User.findOne({ email: env.ADMIN_EMAIL });
@@ -403,31 +420,55 @@ export async function seedSample3DProducts() {
     return;
   }
 
-  const publicDomain = env.S3_PUBLIC_DOMAIN.replace(/\/$/, '');
+  const baseOrigin = process.env.API_BASE_URL || `http://localhost:${env.PORT}`;
+  const doorGlbUrl = `${baseOrigin}${doorGlbUpload.url}`;
+  const doorUsdzUrl = `${baseOrigin}${doorUsdzUpload.url}`;
+  const windowGlbUrl = `${baseOrigin}${windowGlbUpload.url}`;
+  const windowUsdzUrl = `${baseOrigin}${windowUsdzUpload.url}`;
 
-  // Seed sample products into MongoDB if they don't already exist
+  // Seed sample products into MongoDB
   const existingDoor = await Product.findOne({ name: 'Minimalist Architectural Pivot Door' });
-  if (!existingDoor) {
+  if (existingDoor) {
+    existingDoor.glbUrl = doorGlbUrl;
+    existingDoor.usdzUrl = doorUsdzUrl;
+    existingDoor.glbFileId = doorGlbUpload.fileId;
+    existingDoor.usdzFileId = doorUsdzUpload.fileId;
+    existingDoor.status = 'published';
+    await existingDoor.save();
+    logger.info('✅ Updated product with MongoDB GridFS URLs: Minimalist Architectural Pivot Door');
+  } else {
     await Product.create({
       name: 'Minimalist Architectural Pivot Door',
-      glbUrl: `${publicDomain}/models/architectural-pivot-door.glb`,
-      usdzUrl: `${publicDomain}/models/architectural-pivot-door.usdz`,
+      glbUrl: doorGlbUrl,
+      usdzUrl: doorUsdzUrl,
+      glbFileId: doorGlbUpload.fileId,
+      usdzFileId: doorUsdzUpload.fileId,
       status: 'published',
       createdBy: admin._id,
     });
-    logger.info('✅ Seeded published product: Minimalist Architectural Pivot Door');
+    logger.info('✅ Seeded published product in MongoDB: Minimalist Architectural Pivot Door');
   }
 
   const existingWindow = await Product.findOne({ name: 'Contemporary Casement Glass Window' });
-  if (!existingWindow) {
+  if (existingWindow) {
+    existingWindow.glbUrl = windowGlbUrl;
+    existingWindow.usdzUrl = windowUsdzUrl;
+    existingWindow.glbFileId = windowGlbUpload.fileId;
+    existingWindow.usdzFileId = windowUsdzUpload.fileId;
+    existingWindow.status = 'published';
+    await existingWindow.save();
+    logger.info('✅ Updated product with MongoDB GridFS URLs: Contemporary Casement Glass Window');
+  } else {
     await Product.create({
       name: 'Contemporary Casement Glass Window',
-      glbUrl: `${publicDomain}/models/minimalist-casement-window.glb`,
-      usdzUrl: `${publicDomain}/models/minimalist-casement-window.usdz`,
+      glbUrl: windowGlbUrl,
+      usdzUrl: windowUsdzUrl,
+      glbFileId: windowGlbUpload.fileId,
+      usdzFileId: windowUsdzUpload.fileId,
       status: 'published',
       createdBy: admin._id,
     });
-    logger.info('✅ Seeded published product: Contemporary Casement Glass Window');
+    logger.info('✅ Seeded published product in MongoDB: Contemporary Casement Glass Window');
   }
 }
 

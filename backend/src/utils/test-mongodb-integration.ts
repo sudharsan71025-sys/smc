@@ -69,8 +69,8 @@ async function runMongoIntegrationTests() {
       },
       body: JSON.stringify({
         name: 'Dynamic Minimalist Pivot Door',
-        glbUrl: 'http://localhost:5000/uploads/models/pivot_door.glb',
-        usdzUrl: 'http://localhost:5000/uploads/models/pivot_door.usdz',
+        glbUrl: 'http://localhost:5000/api/v1/files/models/pivot_door.glb',
+        usdzUrl: 'http://localhost:5000/api/v1/files/models/pivot_door.usdz',
         status: 'draft',
       }),
     });

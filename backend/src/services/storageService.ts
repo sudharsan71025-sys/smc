@@ -1,212 +1,192 @@
-import { PutObjectCommand, DeleteObjectCommand } from '@aws-sdk/client-s3';
-import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
-import crypto from 'crypto';
-import fs from 'fs/promises';
+import mongoose, { Types } from 'mongoose';
+import { Readable } from 'stream';
 import path from 'path';
-import sharp from 'sharp';
-import { getS3Client, LOCAL_UPLOADS_DIR } from '../config/storage.js';
 import { env } from '../config/env.js';
 import { logger } from '../utils/logger.js';
 import { ApiError } from '../utils/apiError.js';
 
-export interface UploadResult {
+let gridFsBucket: any = null;
+
+/**
+ * Returns the active MongoDB GridFSBucket instance bound to the current Mongoose DB connection.
+ */
+export const getGridFSBucket = (): any => {
+  if (!gridFsBucket || gridFsBucket.s?.db !== mongoose.connection.db) {
+    if (!mongoose.connection.db) {
+      throw new Error('MongoDB connection is not established. Cannot access GridFS bucket.');
+    }
+    gridFsBucket = new mongoose.mongo.GridFSBucket(mongoose.connection.db, {
+      bucketName: env.GRIDFS_BUCKET_NAME || 'models',
+    });
+  }
+  return gridFsBucket;
+};
+
+export interface GridFSUploadResult {
+  fileId: Types.ObjectId;
+  filename: string;
   url: string;
-  key: string;
-  bucket: string;
   size: number;
   mimeType: string;
 }
 
 export class StorageService {
   /**
-   * Generates a unique key for the asset
+   * Sanitizes original filename to preserve extensions (.glb or .usdz) and generate clean names
    */
-  private generateKey(originalName: string, folder = 'models'): string {
-    const ext = path.extname(originalName);
-    const hash = crypto.randomBytes(8).toString('hex');
-    const sanitizedName = path
+  private sanitizeFilename(originalName: string): string {
+    const ext = path.extname(originalName).toLowerCase();
+    const base = path
       .basename(originalName, ext)
       .toLowerCase()
       .replace(/[^a-z0-9_-]/g, '-');
-    return `${folder}/${Date.now()}-${sanitizedName}-${hash}${ext}`;
+    return `${base}${ext}`;
   }
 
   /**
-   * Uploads a buffer to S3 / Cloudflare R2 or local disk
+   * Uploads a 3D binary file buffer (GLB or USDZ) directly into MongoDB GridFS
    */
   async uploadFile(
     buffer: Buffer,
     originalName: string,
     mimeType: string,
-    folder = 'models'
-  ): Promise<UploadResult> {
-    const key = this.generateKey(originalName, folder);
-    const s3Client = getS3Client();
+    metadata: Record<string, any> = {}
+  ): Promise<GridFSUploadResult> {
+    const bucket = getGridFSBucket();
+    const filename = this.sanitizeFilename(originalName);
 
-    if (s3Client && env.STORAGE_PROVIDER !== 'local') {
-      try {
-        const command = new PutObjectCommand({
-          Bucket: env.S3_BUCKET_NAME,
-          Key: key,
-          Body: buffer,
-          ContentType: mimeType,
+    return new Promise((resolve, reject) => {
+      const uploadStream = bucket.openUploadStream(filename, {
+        contentType: mimeType,
+        metadata: {
+          ...metadata,
+          originalName,
+          uploadedAt: new Date(),
+        },
+      });
+
+      const fileId = uploadStream.id as unknown as Types.ObjectId;
+
+      const readable = Readable.from(buffer);
+      readable
+        .pipe(uploadStream)
+        .on('error', (err: any) => {
+          logger.error('MongoDB GridFS upload error:', err);
+          reject(ApiError.internal('Failed to persist file in MongoDB GridFS'));
+        })
+        .on('finish', () => {
+          logger.info(`✅ 3D model stored in MongoDB GridFS: ${filename} (ID: ${fileId})`);
+
+          // Canonical API streaming endpoint for Google model-viewer, Quick Look, and Scene Viewer
+          const url = `/api/v1/files/${fileId}/${filename}`;
+
+          resolve({
+            fileId,
+            filename,
+            url,
+            size: buffer.length,
+            mimeType,
+          });
         });
-
-        await s3Client.send(command);
-
-        const url = `${env.S3_PUBLIC_DOMAIN.replace(/\/$/, '')}/${key}`;
-        logger.info(`File uploaded to S3/R2: ${key}`);
-
-        return {
-          url,
-          key,
-          bucket: env.S3_BUCKET_NAME,
-          size: buffer.length,
-          mimeType,
-        };
-      } catch (err) {
-        logger.error('S3/R2 upload failed:', err);
-        throw ApiError.internal('Failed to upload file to cloud storage');
-      }
-    } else {
-      // Local storage fallback
-      const localFilePath = path.join(LOCAL_UPLOADS_DIR, key);
-      await fs.mkdir(path.dirname(localFilePath), { recursive: true });
-      await fs.writeFile(localFilePath, buffer);
-
-      const url = `${env.S3_PUBLIC_DOMAIN.replace(/\/$/, '')}/${key}`;
-      logger.info(`File saved locally: ${localFilePath}`);
-
-      return {
-        url,
-        key,
-        bucket: 'local',
-        size: buffer.length,
-        mimeType,
-      };
-    }
+    });
   }
 
   /**
-   * Optimizes an image (generates WebP thumbnail and optimized full view)
+   * Retrieves a file download stream and metadata from MongoDB GridFS by ObjectId
    */
-  async processAndUploadImage(
-    buffer: Buffer,
-    originalName: string,
-    maxWidth = 1920
-  ): Promise<{ full: UploadResult; thumbnail: UploadResult }> {
+  async getFileStream(
+    fileId: string | Types.ObjectId,
+    range?: { start: number; end: number }
+  ): Promise<{
+    file: any;
+    stream: NodeJS.ReadableStream;
+  }> {
+    if (!Types.ObjectId.isValid(fileId)) {
+      throw ApiError.badRequest(`Invalid GridFS file ID format: '${fileId}'`);
+    }
+
+    const bucket = getGridFSBucket();
+    const objectId = new mongoose.Types.ObjectId(fileId.toString());
+
+    const files = await bucket.find({ _id: objectId }).toArray();
+    if (!files || files.length === 0) {
+      throw ApiError.notFound(`3D model file '${fileId}' not found in MongoDB GridFS`);
+    }
+
+    const file = files[0];
+    const stream = range
+      ? bucket.openDownloadStream(objectId, { start: range.start, end: range.end + 1 })
+      : bucket.openDownloadStream(objectId);
+
+    return { file, stream };
+  }
+
+  /**
+   * Retrieves a file by filename from MongoDB GridFS (latest upload matching filename)
+   */
+  async getFileStreamByName(
+    filename: string,
+    range?: { start: number; end: number }
+  ): Promise<{
+    file: any;
+    stream: NodeJS.ReadableStream;
+  } | null> {
+    const bucket = getGridFSBucket();
+    const files = await bucket.find({ filename }).sort({ uploadDate: -1 }).toArray();
+    if (!files || files.length === 0) {
+      return null;
+    }
+
+    const file = files[0];
+    const stream = range
+      ? bucket.openDownloadStream(file._id, { start: range.start, end: range.end + 1 })
+      : bucket.openDownloadStream(file._id);
+
+    return { file, stream };
+  }
+
+  /**
+   * Deletes a file and its chunks from MongoDB GridFS
+   */
+  async deleteFile(fileId: string | Types.ObjectId): Promise<void> {
+    if (!fileId || !Types.ObjectId.isValid(fileId)) return;
     try {
-      const optimizedBuffer = await sharp(buffer)
-        .resize({ width: maxWidth, withoutEnlargement: true })
-        .webp({ quality: 85 })
-        .toBuffer();
-
-      const thumbnailBuffer = await sharp(buffer)
-        .resize({ width: 400, height: 400, fit: 'cover' })
-        .webp({ quality: 80 })
-        .toBuffer();
-
-      const baseName = path.basename(originalName, path.extname(originalName));
-
-      const full = await this.uploadFile(
-        optimizedBuffer,
-        `${baseName}.webp`,
-        'image/webp',
-        'images'
-      );
-
-      const thumbnail = await this.uploadFile(
-        thumbnailBuffer,
-        `${baseName}-thumb.webp`,
-        'image/webp',
-        'thumbnails'
-      );
-
-      return { full, thumbnail };
+      const bucket = getGridFSBucket();
+      const objectId = new mongoose.Types.ObjectId(fileId.toString());
+      await bucket.delete(objectId);
+      logger.info(`Deleted file from MongoDB GridFS: ${fileId}`);
     } catch (err) {
-      logger.error('Sharp image processing error:', err);
-      throw ApiError.internal('Failed to optimize and upload image');
+      logger.warn(`Could not delete file ${fileId} from GridFS (it may already be deleted):`, err);
     }
   }
 
   /**
-   * Generates a presigned upload URL for direct client upload (S3 / Cloudflare R2)
-   */
-  async getPresignedUploadUrl(
-    fileName: string,
-    mimeType: string,
-    folder = 'models'
-  ): Promise<{ uploadUrl: string; key: string; publicUrl: string }> {
-    const s3Client = getS3Client();
-    const key = this.generateKey(fileName, folder);
-
-    if (s3Client && env.STORAGE_PROVIDER !== 'local') {
-      const command = new PutObjectCommand({
-        Bucket: env.S3_BUCKET_NAME,
-        Key: key,
-        ContentType: mimeType,
-      });
-
-      const uploadUrl = await getSignedUrl(s3Client, command, { expiresIn: 900 });
-      const publicUrl = `${env.S3_PUBLIC_DOMAIN.replace(/\/$/, '')}/${key}`;
-
-      return { uploadUrl, key, publicUrl };
-    }
-
-    // For local fallback: direct backend upload route is used
-    return {
-      uploadUrl: `${env.S3_PUBLIC_DOMAIN}/direct-upload`,
-      key,
-      publicUrl: `${env.S3_PUBLIC_DOMAIN.replace(/\/$/, '')}/${key}`,
-    };
-  }
-
-  /**
-   * Deletes a file from storage
-   */
-  async deleteFile(key: string): Promise<void> {
-    const s3Client = getS3Client();
-    if (s3Client && env.STORAGE_PROVIDER !== 'local') {
-      const command = new DeleteObjectCommand({
-        Bucket: env.S3_BUCKET_NAME,
-        Key: key,
-      });
-      await s3Client.send(command);
-    } else {
-      const localFilePath = path.join(LOCAL_UPLOADS_DIR, key);
-      await fs.unlink(localFilePath).catch(() => {});
-    }
-  }
-
-  /**
-   * Deletes a file from storage given its public URL or path
+   * Deletes a file from MongoDB GridFS given its URL or filename
    */
   async deleteFileFromUrl(fileUrl?: string): Promise<void> {
     if (!fileUrl) return;
     try {
-      const publicDomain = env.S3_PUBLIC_DOMAIN.replace(/\/$/, '');
-      let key = '';
+      // 1. Matches /files/:id or /api/v1/files/:id
+      const match = fileUrl.match(/\/files\/([a-fA-F0-9]{24})/);
+      if (match && match[1]) {
+        await this.deleteFile(match[1]);
+        return;
+      }
 
-      if (fileUrl.startsWith(publicDomain)) {
-        key = fileUrl.replace(`${publicDomain}/`, '');
-      } else {
-        try {
-          const parsed = new URL(fileUrl);
-          key = parsed.pathname.replace(/^\/uploads\//, '').replace(/^\//, '');
-        } catch {
-          key = fileUrl.replace(/^(\/)?uploads\//, '').replace(/^\//, '');
+      // 2. Fallback: match by filename
+      const parsedFilename = path.basename(fileUrl.split('?')[0].split('#')[0]);
+      if (parsedFilename) {
+        const bucket = getGridFSBucket();
+        const files = await bucket.find({ filename: parsedFilename }).toArray();
+        for (const file of files) {
+          await bucket.delete(file._id);
+          logger.info(`Deleted file from MongoDB GridFS by filename: ${file.filename}`);
         }
       }
-
-      if (key) {
-        await this.deleteFile(key);
-        logger.info(`Deleted storage file for key: ${key}`);
-      }
     } catch (err) {
-      logger.warn(`Failed to clean up storage file from URL '${fileUrl}':`, err);
+      logger.warn(`Failed to clean up GridFS file from URL '${fileUrl}':`, err);
     }
   }
 }
 
 export const storageService = new StorageService();
-

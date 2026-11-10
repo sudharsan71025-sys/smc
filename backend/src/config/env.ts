@@ -28,14 +28,8 @@ const envSchema = z.object({
   ADMIN_EMAIL: z.string().email().default('javix@gmail.com'),
   ADMIN_PASSWORD: z.string().min(6).default('javix2026'),
 
-  // Storage (Cloudflare R2 / AWS S3 / Local fallback)
-  STORAGE_PROVIDER: z.enum(['s3', 'r2', 'local']).default('local'),
-  S3_ENDPOINT: z.string().optional(),
-  S3_REGION: z.string().default('auto'),
-  S3_ACCESS_KEY_ID: z.string().optional(),
-  S3_SECRET_ACCESS_KEY: z.string().optional(),
-  S3_BUCKET_NAME: z.string().default('smc-3d-assets'),
-  S3_PUBLIC_DOMAIN: z.string().default('http://localhost:5000/uploads'),
+  // Storage - MongoDB GridFS is the exclusive storage engine
+  GRIDFS_BUCKET_NAME: z.string().default('models'),
 
   // Upload limits
   MAX_FILE_SIZE_MB: z.coerce.number().default(50),

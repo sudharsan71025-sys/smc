@@ -1,4 +1,5 @@
 import { Request, Response } from 'express';
+import { Types } from 'mongoose';
 import { productService } from '../services/productService.js';
 import { storageService } from './../services/storageService.js';
 import { validate3DFileBuffer } from '../middleware/upload.js';
@@ -24,29 +25,36 @@ export const createProduct = asyncHandler(async (req: AuthenticatedRequest, res:
 
   let glbUrl = (req.body.glbUrl || '').trim();
   let usdzUrl = (req.body.usdzUrl || '').trim() || undefined;
+  let glbFileId: Types.ObjectId | undefined;
+  let usdzFileId: Types.ObjectId | undefined;
 
-  // Process uploaded GLB file if present
+  const protocol = req.protocol;
+  const host = req.get('host') || 'localhost:5000';
+
+  // Process uploaded GLB file if present into MongoDB GridFS
   if (glbFile) {
     validate3DFileBuffer(glbFile, 'glb');
     const uploadResult = await storageService.uploadFile(
       glbFile.buffer,
       glbFile.originalname,
       'model/gltf-binary',
-      'models'
+      { type: 'glb', originalName: glbFile.originalname }
     );
-    glbUrl = uploadResult.url;
+    glbFileId = uploadResult.fileId;
+    glbUrl = `${protocol}://${host}${uploadResult.url}`;
   }
 
-  // Process uploaded USDZ file if present
+  // Process uploaded USDZ file if present into MongoDB GridFS
   if (usdzFile) {
     validate3DFileBuffer(usdzFile, 'usdz');
     const uploadResult = await storageService.uploadFile(
       usdzFile.buffer,
       usdzFile.originalname,
       'model/vnd.usdz+zip',
-      'models'
+      { type: 'usdz', originalName: usdzFile.originalname }
     );
-    usdzUrl = uploadResult.url;
+    usdzFileId = uploadResult.fileId;
+    usdzUrl = `${protocol}://${host}${uploadResult.url}`;
   }
 
   if (!glbUrl) {
@@ -64,6 +72,8 @@ export const createProduct = asyncHandler(async (req: AuthenticatedRequest, res:
     name,
     glbUrl,
     usdzUrl,
+    glbFileId,
+    usdzFileId,
     status,
     createdBy,
   });
@@ -125,29 +135,36 @@ export const updateProduct = asyncHandler(async (req: Request, res: Response) =>
 
   let glbUrl = req.body.glbUrl;
   let usdzUrl = req.body.usdzUrl;
+  let glbFileId: Types.ObjectId | undefined;
+  let usdzFileId: Types.ObjectId | undefined;
 
-  // Process newly uploaded GLB replacement
+  const protocol = req.protocol;
+  const host = req.get('host') || 'localhost:5000';
+
+  // Process newly uploaded GLB replacement in MongoDB GridFS
   if (glbFile) {
     validate3DFileBuffer(glbFile, 'glb');
     const uploadResult = await storageService.uploadFile(
       glbFile.buffer,
       glbFile.originalname,
       'model/gltf-binary',
-      'models'
+      { type: 'glb', originalName: glbFile.originalname }
     );
-    glbUrl = uploadResult.url;
+    glbFileId = uploadResult.fileId;
+    glbUrl = `${protocol}://${host}${uploadResult.url}`;
   }
 
-  // Process newly uploaded USDZ replacement
+  // Process newly uploaded USDZ replacement in MongoDB GridFS
   if (usdzFile) {
     validate3DFileBuffer(usdzFile, 'usdz');
     const uploadResult = await storageService.uploadFile(
       usdzFile.buffer,
       usdzFile.originalname,
       'model/vnd.usdz+zip',
-      'models'
+      { type: 'usdz', originalName: usdzFile.originalname }
     );
-    usdzUrl = uploadResult.url;
+    usdzFileId = uploadResult.fileId;
+    usdzUrl = `${protocol}://${host}${uploadResult.url}`;
   }
 
   const name = req.body.name || req.body.title;
@@ -157,6 +174,8 @@ export const updateProduct = asyncHandler(async (req: Request, res: Response) =>
     name,
     glbUrl,
     usdzUrl,
+    glbFileId,
+    usdzFileId,
     status,
   });
 

@@ -14,15 +14,10 @@ export const uploadAsset = asyncHandler(async (req: Request, res: Response) => {
   return ApiResponse.created(res, '3D Asset uploaded and registered successfully', asset);
 });
 
-export const getPresignedUrl = asyncHandler(async (req: Request, res: Response) => {
-  const { fileName, fileType, format } = req.body;
-  const folder = ['glb', 'gltf', 'usdz'].includes(format) ? 'models' : 'textures';
-
-  const result = await storageService.getPresignedUploadUrl(fileName, fileType, folder);
-  return ApiResponse.success(res, {
-    message: 'Presigned upload URL generated successfully',
-    data: result,
-  });
+export const getPresignedUrl = asyncHandler(async (_req: Request, _res: Response) => {
+  throw ApiError.badRequest(
+    'Presigned URLs are deprecated. All 3D assets are uploaded directly and persisted in MongoDB GridFS.'
+  );
 });
 
 export const getAssets = asyncHandler(async (req: Request, res: Response) => {

@@ -34,8 +34,8 @@ export const getHealth = asyncHandler(async (_req: Request, res: Response) => {
         databaseName: dbStatus.name || env.MONGODB_DB_NAME,
       },
       storage: {
-        provider: env.STORAGE_PROVIDER,
-        bucket: env.S3_BUCKET_NAME,
+        provider: 'mongodb-gridfs',
+        bucket: env.GRIDFS_BUCKET_NAME,
       },
       memory: {
         heapUsedMB: Math.round(memoryUsage.heapUsed / 1024 / 1024),

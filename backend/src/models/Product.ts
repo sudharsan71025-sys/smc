@@ -5,6 +5,8 @@ export type ProductStatus = 'draft' | 'published';
 export interface IProduct extends Document {
   _id: Types.ObjectId;
   name: string;
+  glbFileId?: Types.ObjectId;
+  usdzFileId?: Types.ObjectId;
   glbUrl: string;
   usdzUrl?: string;
   status: ProductStatus;
@@ -23,6 +25,16 @@ const ProductSchema = new Schema<IProduct>(
       trim: true,
       minlength: [2, 'Product name must be at least 2 characters'],
       maxlength: [200, 'Product name cannot exceed 200 characters'],
+    },
+    glbFileId: {
+      type: Schema.Types.ObjectId,
+      index: true,
+      default: undefined,
+    },
+    usdzFileId: {
+      type: Schema.Types.ObjectId,
+      index: true,
+      default: undefined,
     },
     glbUrl: {
       type: String,

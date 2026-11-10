@@ -2,9 +2,7 @@ import { createApp } from '../app.js';
 import { db } from '../config/database.js';
 import { logger } from './logger.js';
 import { Product } from '../models/Product.js';
-import fs from 'fs';
-import path from 'path';
-import { LOCAL_UPLOADS_DIR } from '../config/storage.js';
+import { storageService } from '../services/storageService.js';
 
 async function run3DViewerTests() {
   logger.info('========================================================');
@@ -81,29 +79,32 @@ async function run3DViewerTests() {
     // TEST 3: Handling Missing Model URL
     // ----------------------------------------------------
     logger.info('\n--- TEST 3: Handling Missing Model URL ---');
-    // Verify frontend/backend handles missing/empty GLB correctly
-    const missingUrlRes = await fetch(`${baseUrl}/uploads/models/non-existent-model.glb`);
+    // Verify backend/GridFS handles missing/empty file cleanly
+    const missingUrlRes = await fetch(`${baseUrl}/api/v1/files/000000000000000000000000/non-existent-model.glb`);
     if (missingUrlRes.status === 404) {
-      logger.info('  ✅ PASS: Missing model URL cleanly returns 404 Not Found');
+      logger.info('  ✅ PASS: Missing MongoDB GridFS model cleanly returns 404 Not Found');
     } else {
       throw new Error(`Expected 404 for missing file, got ${missingUrlRes.status}`);
     }
 
     // ----------------------------------------------------
-    // TEST 4: Handling Corrupt / Invalid GLB File
+    // TEST 4: Handling Corrupt / Invalid GLB File in GridFS
     // ----------------------------------------------------
-    logger.info('\n--- TEST 4: Handling Corrupted / Invalid GLB File ---');
-    const corruptPath = path.join(LOCAL_UPLOADS_DIR, 'models', 'corrupt-test.glb');
-    fs.writeFileSync(corruptPath, Buffer.from('CORRUPT_INVALID_HEADER_DATA_12345'));
+    logger.info('\n--- TEST 4: Handling Corrupted / Invalid GLB File in GridFS ---');
+    const corruptUpload = await storageService.uploadFile(
+      Buffer.from('CORRUPT_INVALID_HEADER_DATA_12345'),
+      'corrupt-test.glb',
+      'model/gltf-binary'
+    );
 
-    const corruptRes = await fetch(`${baseUrl}/uploads/models/corrupt-test.glb`);
+    const corruptRes = await fetch(`${baseUrl}${corruptUpload.url}`);
     const corruptBuf = Buffer.from(await corruptRes.arrayBuffer());
     const isCorruptMagic = corruptBuf.toString('ascii', 0, 4) !== 'glTF';
     if (isCorruptMagic) {
       logger.info('  ✅ PASS: Corrupt GLB detected (magic bytes mismatch, rejected by 3D parser)');
     }
-    // Clean up temporary corrupt file
-    fs.unlinkSync(corruptPath);
+    // Clean up temporary corrupt file from GridFS
+    await storageService.deleteFile(corruptUpload.fileId);
 
     // ----------------------------------------------------
     // TEST 5: Network Streaming & Content-Type Headers

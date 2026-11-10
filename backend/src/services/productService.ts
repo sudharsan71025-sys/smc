@@ -8,6 +8,8 @@ export interface CreateProductInput {
   name: string;
   glbUrl: string;
   usdzUrl?: string;
+  glbFileId?: Types.ObjectId;
+  usdzFileId?: Types.ObjectId;
   status?: ProductStatus;
   createdBy: string | Types.ObjectId;
 }
@@ -16,6 +18,8 @@ export interface UpdateProductInput {
   name?: string;
   glbUrl?: string;
   usdzUrl?: string;
+  glbFileId?: Types.ObjectId;
+  usdzFileId?: Types.ObjectId;
   status?: ProductStatus;
 }
 
@@ -28,6 +32,8 @@ export class ProductService {
       name: data.name.trim(),
       glbUrl: data.glbUrl.trim(),
       usdzUrl: data.usdzUrl?.trim() || undefined,
+      glbFileId: data.glbFileId,
+      usdzFileId: data.usdzFileId,
       status: data.status || 'draft',
       createdBy: new Types.ObjectId(data.createdBy.toString()),
     });
@@ -111,13 +117,17 @@ export class ProductService {
       throw ApiError.notFound(`Product with ID '${id}' not found`);
     }
 
-    // If new GLB is uploaded, clean up old GLB from storage
-    if (updateData.glbUrl && updateData.glbUrl !== existing.glbUrl) {
+    // If new GLB is uploaded, clean up old GLB from GridFS
+    if (updateData.glbFileId && existing.glbFileId && !updateData.glbFileId.equals(existing.glbFileId)) {
+      await storageService.deleteFile(existing.glbFileId);
+    } else if (updateData.glbUrl && updateData.glbUrl !== existing.glbUrl) {
       await storageService.deleteFileFromUrl(existing.glbUrl);
     }
 
-    // If new USDZ is uploaded or changed, clean up old USDZ from storage
-    if (updateData.usdzUrl && updateData.usdzUrl !== existing.usdzUrl) {
+    // If new USDZ is uploaded or changed, clean up old USDZ from GridFS
+    if (updateData.usdzFileId && existing.usdzFileId && !updateData.usdzFileId.equals(existing.usdzFileId)) {
+      await storageService.deleteFile(existing.usdzFileId);
+    } else if (updateData.usdzUrl && updateData.usdzUrl !== existing.usdzUrl) {
       await storageService.deleteFileFromUrl(existing.usdzUrl);
     }
 
@@ -127,6 +137,8 @@ export class ProductService {
         ...(updateData.name ? { name: updateData.name.trim() } : {}),
         ...(updateData.glbUrl ? { glbUrl: updateData.glbUrl.trim() } : {}),
         ...(updateData.usdzUrl !== undefined ? { usdzUrl: updateData.usdzUrl?.trim() || undefined } : {}),
+        ...(updateData.glbFileId ? { glbFileId: updateData.glbFileId } : {}),
+        ...(updateData.usdzFileId !== undefined ? { usdzFileId: updateData.usdzFileId } : {}),
         ...(updateData.status ? { status: updateData.status } : {}),
       },
       { new: true, runValidators: true }
@@ -175,11 +187,16 @@ export class ProductService {
       throw ApiError.notFound(`Product with ID '${id}' not found`);
     }
 
-    // Clean up files in object storage / disk to maintain storage consistency
-    if (product.glbUrl) {
+    // Clean up files in MongoDB GridFS to maintain database storage consistency
+    if (product.glbFileId) {
+      await storageService.deleteFile(product.glbFileId);
+    } else if (product.glbUrl) {
       await storageService.deleteFileFromUrl(product.glbUrl);
     }
-    if (product.usdzUrl) {
+
+    if (product.usdzFileId) {
+      await storageService.deleteFile(product.usdzFileId);
+    } else if (product.usdzUrl) {
       await storageService.deleteFileFromUrl(product.usdzUrl);
     }
 

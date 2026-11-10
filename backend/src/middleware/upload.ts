@@ -18,7 +18,7 @@ const ALLOWED_ALL_EXTENSIONS = new Set([
   '.webp',
 ]);
 
-// Memory storage to validate in RAM and stream to S3 / Cloudflare R2 or disk
+// Memory storage to validate in RAM and stream directly to MongoDB GridFS
 const storage = multer.memoryStorage();
 
 // General file upload filter

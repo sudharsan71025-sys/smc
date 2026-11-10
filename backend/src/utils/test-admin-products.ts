@@ -71,8 +71,8 @@ async function runAdminProductTests() {
   let adminToken = '';
   let userToken = '';
   let createdProductId = '';
-  let glbFilePath = '';
-  let usdzFilePath = '';
+  let uploadedGlbUrl = '';
+  let uploadedUsdzUrl = '';
 
   try {
     // ----------------------------------------------------
@@ -220,19 +220,18 @@ async function runAdminProductTests() {
       logger.info(`     USDZ URL: ${uploadJson.data.usdzUrl}`);
       logger.info(`     Status: ${uploadJson.data.status}`);
 
-      // Extract local relative paths to test file presence
-      if (uploadJson.data.glbUrl.includes('/uploads/')) {
-        const glbRel = uploadJson.data.glbUrl.split('/uploads/')[1];
-        glbFilePath = path.resolve(process.cwd(), 'uploads', glbRel);
-        if (fs.existsSync(glbFilePath)) {
-          logger.info(`  ✅ PASS: GLB file physically written to storage (${glbFilePath})`);
-        }
+      // Verify file presence in MongoDB GridFS
+      uploadedGlbUrl = uploadJson.data.glbUrl.replace('http://localhost:5000', baseUrl);
+      uploadedUsdzUrl = uploadJson.data.usdzUrl ? uploadJson.data.usdzUrl.replace('http://localhost:5000', baseUrl) : '';
+
+      const glbCheck = await fetch(uploadedGlbUrl);
+      if (glbCheck.status === 200) {
+        logger.info(`  ✅ PASS: GLB file physically stored & streamable from MongoDB GridFS (${uploadedGlbUrl})`);
       }
-      if (uploadJson.data.usdzUrl?.includes('/uploads/')) {
-        const usdzRel = uploadJson.data.usdzUrl.split('/uploads/')[1];
-        usdzFilePath = path.resolve(process.cwd(), 'uploads', usdzRel);
-        if (fs.existsSync(usdzFilePath)) {
-          logger.info(`  ✅ PASS: USDZ file physically written to storage (${usdzFilePath})`);
+      if (uploadedUsdzUrl) {
+        const usdzCheck = await fetch(uploadedUsdzUrl);
+        if (usdzCheck.status === 200) {
+          logger.info(`  ✅ PASS: USDZ file physically stored & streamable from MongoDB GridFS (${uploadedUsdzUrl})`);
         }
       }
     } else {
@@ -349,12 +348,18 @@ async function runAdminProductTests() {
       throw new Error('Product still exists in database after delete!');
     }
 
-    // Verify storage consistency (files deleted)
-    if (glbFilePath && !fs.existsSync(glbFilePath)) {
-      logger.info('  ✅ PASS: GLB file deleted from storage (no orphaned storage)');
+    // Verify storage consistency (files deleted from MongoDB GridFS)
+    if (uploadedGlbUrl) {
+      const glbPostDelete = await fetch(uploadedGlbUrl);
+      if (glbPostDelete.status === 404) {
+        logger.info('  ✅ PASS: GLB file cleanly removed from MongoDB GridFS');
+      }
     }
-    if (usdzFilePath && !fs.existsSync(usdzFilePath)) {
-      logger.info('  ✅ PASS: USDZ file deleted from storage (no orphaned storage)');
+    if (uploadedUsdzUrl) {
+      const usdzPostDelete = await fetch(uploadedUsdzUrl);
+      if (usdzPostDelete.status === 404) {
+        logger.info('  ✅ PASS: USDZ file cleanly removed from MongoDB GridFS');
+      }
     }
 
     // Clean up test user

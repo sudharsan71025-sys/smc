@@ -38,7 +38,7 @@ export class AssetService {
       file.buffer,
       file.originalname,
       file.mimetype,
-      folder
+      { folder }
     );
 
     const asset = await Asset3D.create({
@@ -46,8 +46,9 @@ export class AssetService {
       originalFileName: file.originalname,
       format,
       url: upload.url,
-      s3Key: upload.key,
-      bucket: upload.bucket,
+      fileId: upload.fileId,
+      fileKey: upload.filename,
+      bucket: 'models',
       fileSize: upload.size,
       mimeType: upload.mimeType,
       lodLevel: metadata.lodLevel || 'lod0',
@@ -86,7 +87,11 @@ export class AssetService {
    */
   async deleteAsset(id: string): Promise<void> {
     const asset = await this.getAssetById(id);
-    await storageService.deleteFile(asset.s3Key);
+    if (asset.fileId) {
+      await storageService.deleteFile(asset.fileId);
+    } else if (asset.url) {
+      await storageService.deleteFileFromUrl(asset.url);
+    }
     await Asset3D.findByIdAndDelete(id);
   }
 }

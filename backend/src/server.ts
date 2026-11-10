@@ -20,7 +20,7 @@ const startServer = async (): Promise<void> => {
       logger.info('====================================================');
       logger.info(`🚀 SMC Showroom Server is running on port ${env.PORT}`);
       logger.info(`📡 Health Check: http://localhost:${env.PORT}${env.API_PREFIX}/health`);
-      logger.info(`📦 Storage Mode: ${env.STORAGE_PROVIDER}`);
+      logger.info(`📦 Storage Mode: MongoDB GridFS (bucket: ${env.GRIDFS_BUCKET_NAME})`);
       logger.info(`🔗 CORS Origin : ${env.CLIENT_ORIGIN}`);
       logger.info('====================================================');
     });

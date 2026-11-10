@@ -181,7 +181,7 @@ async function runIosARTests() {
     // Create a temporary draft product without USDZ to test fallback resilience
     const productWithoutUsdz = await Product.create({
       name: 'Custom Flush Wood Door (No USDZ Asset)',
-      glbUrl: 'http://localhost:5000/uploads/models/architectural-pivot-door.glb',
+      glbUrl: products[0].glbUrl,
       usdzUrl: null,
       status: 'published',
       createdBy: products[0].createdBy,
