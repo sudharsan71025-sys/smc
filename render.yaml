@@ -1,0 +1,50 @@
+services:
+  # -----------------------------------------------------------
+  # 1. SMC Express.js Backend API (MongoDB Atlas & GridFS)
+  # -----------------------------------------------------------
+  - type: web
+    name: smc-backend
+    runtime: node
+    plan: free
+    rootDir: backend
+    buildCommand: npm install && npm run build
+    startCommand: npm start
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: API_PREFIX
+        value: /api/v1
+      - key: MONGODB_DB_NAME
+        value: smc
+      - key: GRIDFS_BUCKET_NAME
+        value: models
+      - key: JWT_EXPIRES_IN
+        value: 7d
+      - key: ADMIN_NAME
+        value: SMC Admin
+      - key: ADMIN_EMAIL
+        value: javix@gmail.com
+      - key: MONGODB_URI
+        sync: false
+      - key: JWT_SECRET
+        generateValue: true
+      - key: ADMIN_PASSWORD
+        sync: false
+      - key: CLIENT_ORIGIN
+        sync: false
+
+  # -----------------------------------------------------------
+  # 2. SMC Next.js 15 Frontend (3D & AR Showroom)
+  # -----------------------------------------------------------
+  - type: web
+    name: smc-frontend
+    runtime: node
+    plan: free
+    rootDir: frontend
+    buildCommand: npm install && npm run build
+    startCommand: npm start
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: NEXT_PUBLIC_API_URL
+        sync: false
