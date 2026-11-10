@@ -19,6 +19,7 @@
     "test:android-ar": "tsx src/utils/test-android-ar.ts",
     "test:ios-ar": "tsx src/utils/test-ios-ar.ts",
     "test:e2e": "tsx src/utils/test-e2e-integration.ts",
+    "test:playwright": "tsx src/utils/test-playwright-e2e.ts",
     "test:qa": "tsx src/utils/verify-all-qa.ts"
   },
   "keywords": [
@@ -58,6 +59,7 @@
     "@typescript-eslint/parser": "^8.24.1",
     "eslint": "^9.20.1",
     "mongodb-memory-server": "^10.1.3",
+    "playwright-core": "^1.65.0",
     "prettier": "^3.5.1",
     "tsx": "^4.19.3",
     "typescript": "^5.7.3"

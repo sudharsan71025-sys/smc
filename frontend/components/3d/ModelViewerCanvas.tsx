@@ -59,6 +59,11 @@ export function ModelViewerCanvas({
     const el = modelViewerRef.current;
     if (!el || !src) return;
 
+    el.setAttribute('src', src);
+    if (iosSrc) {
+      el.setAttribute('ios-src', iosSrc);
+    }
+
     loadStartTimeRef.current = Date.now();
     setIsLoaded(false);
     setErrorMessage(null);

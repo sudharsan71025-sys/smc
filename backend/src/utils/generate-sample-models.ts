@@ -11,7 +11,7 @@ import { logger } from './logger.js';
 /**
  * Builds a standard glTF 2.0 binary (GLB) containing a 3D box mesh (vertices, normals, indices, PBR material)
  */
-function buildGlbBox(options: {
+export function buildGlbBox(options: {
   width: number;
   height: number;
   depth: number;
@@ -210,7 +210,7 @@ function buildGlbBox(options: {
  * Builds a valid USDZ package (uncompressed ZIP with 64-byte alignment containing model.usda)
  * declaring standard Apple AR Quick Look metadata: metersPerUnit = 1.0, upAxis = "Y".
  */
-function buildUsdzPackage(options: {
+export function buildUsdzPackage(options: {
   width: number;
   height: number;
   depth: number;
