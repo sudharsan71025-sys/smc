@@ -210,14 +210,14 @@ export default function ProductViewerPage({
               <div className="space-y-3 pt-1">
                 <ARLaunchButton
                   glbUrl={glbUrl}
-                  usdzUrl={quickLookUrl}
+                  usdzUrl={usdzUrl}
                   title={displayName}
                   placementMode={placementMode}
                   onPlacementModeChange={setPlacementMode}
                   className="w-full h-12 shadow-sm"
                 />
                 <p className="text-[11px] text-secondary text-center leading-normal">
-                  Launches Apple Quick Look on iPhone and Google Scene Viewer on Android for physical room projection.
+                  Launches real-world mobile camera AR with surface tracking and 4-corner doorway opening alignment.
                 </p>
               </div>
 

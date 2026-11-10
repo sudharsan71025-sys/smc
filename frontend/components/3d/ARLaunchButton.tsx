@@ -1,9 +1,11 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import { useARCapabilities } from '@/hooks/useARCapabilities';
 import { buildSceneViewerUrl, buildQuickLookUrl } from '@/utils/3d-helpers';
+import { normalizeModelUrl } from '@/lib/api-url';
 import { Button, ButtonProps } from '@/components/ui/button';
+import { RealWorldARExperience } from './RealWorldARExperience';
 
 interface ARLaunchButtonProps extends ButtonProps {
   glbUrl?: string;
@@ -22,19 +24,30 @@ export function ARLaunchButton({
   className,
   ...props
 }: ARLaunchButtonProps) {
-  const { isAndroid, isIOS, supportsQuickLook, supportsSceneViewer } = useARCapabilities();
+  const { isAndroid, isIOS } = useARCapabilities();
+  const [showRealWorldAR, setShowRealWorldAR] = useState(false);
   const [showGuidanceModal, setShowGuidanceModal] = useState(false);
 
-  // Directly trigger Android Scene Viewer
-  const launchSceneViewer = () => {
-    if (!glbUrl) {
-      alert('3D model URL is missing. Cannot launch AR.');
+  // Normalize URLs to guarantee active network/cloud host connectivity
+  const normalizedGlbUrl = useMemo(() => normalizeModelUrl(glbUrl), [glbUrl]);
+  const normalizedUsdzUrl = useMemo(() => normalizeModelUrl(usdzUrl), [usdzUrl]);
+
+  // Launch the in-camera Real-World AR experience directly
+  const handleMainARClick = () => {
+    if (!normalizedGlbUrl) {
+      alert('Product 3D model is not available for AR inspection.');
       return;
     }
+    setShowRealWorldAR(true);
+  };
+
+  // Directly trigger Android Scene Viewer (fallback)
+  const launchSceneViewer = () => {
+    if (!normalizedGlbUrl) return;
 
     const currentUrl = typeof window !== 'undefined' ? window.location.href : '';
     const intentUrl = buildSceneViewerUrl({
-      glbUrl,
+      glbUrl: normalizedGlbUrl,
       title,
       linkUrl: currentUrl,
       resizable: false, // Enforce 1:1 real-world physical scale
@@ -44,40 +57,16 @@ export function ARLaunchButton({
     window.location.href = intentUrl;
   };
 
-  // Directly trigger in-browser WebXR AR via model-viewer
-  const launchWebXR = () => {
-    const modelViewerEl = document.querySelector('model-viewer') as
-      | (HTMLElement & { activateAR?: () => void; canActivateAR?: boolean })
-      | null;
-
-    if (
-      modelViewerEl &&
-      typeof modelViewerEl.activateAR === 'function' &&
-      modelViewerEl.canActivateAR
-    ) {
-      modelViewerEl.activateAR();
-      setShowGuidanceModal(false);
-      return;
-    }
-
-    // If WebXR activateAR is not directly available, launch Scene Viewer on Android
-    if (isAndroid) {
-      launchSceneViewer();
-    } else {
-      setShowGuidanceModal(true);
-    }
-  };
-
-  // Directly trigger Apple AR Quick Look on iOS
+  // Directly trigger Apple AR Quick Look on iOS (fallback)
   const launchAppleQuickLook = () => {
-    if (!usdzUrl) {
+    if (!normalizedUsdzUrl) {
       setShowGuidanceModal(true);
       return;
     }
 
     const currentUrl = typeof window !== 'undefined' ? window.location.href : '';
     const quickLookUrl = buildQuickLookUrl({
-      usdzUrl,
+      usdzUrl: normalizedUsdzUrl,
       canonicalWebPageURL: currentUrl,
       allowsContentScaling: false, // Strictly lock 1:1 real-world physical scale
     });
@@ -85,42 +74,12 @@ export function ARLaunchButton({
     const anchor = document.createElement('a');
     anchor.setAttribute('rel', 'ar');
     anchor.setAttribute('href', quickLookUrl);
-    // Apple Quick Look specification requires an <img> child element
     const img = document.createElement('img');
     anchor.appendChild(img);
     document.body.appendChild(anchor);
     anchor.click();
     document.body.removeChild(anchor);
     setShowGuidanceModal(false);
-  };
-
-  // Main AR button handler
-  const handleMainARClick = () => {
-    if (!glbUrl) {
-      alert('Product 3D model is not available for AR inspection.');
-      return;
-    }
-
-    // 1. Android devices: show guidance with one-tap launch to ensure user knows camera/surface steps
-    if (isAndroid || supportsSceneViewer) {
-      setShowGuidanceModal(true);
-      return;
-    }
-
-    // 2. iOS devices: launch Apple Quick Look or show informative fallback if USDZ is pending
-    if (isIOS || supportsQuickLook) {
-      if (usdzUrl) {
-        launchAppleQuickLook();
-        return;
-      } else {
-        // Missing USDZ: open modal with clear guidance while maintaining 3D viewer active
-        setShowGuidanceModal(true);
-        return;
-      }
-    }
-
-    // 3. Desktop / Unsupported: open guidance modal
-    setShowGuidanceModal(true);
   };
 
   return (
@@ -160,15 +119,47 @@ export function ARLaunchButton({
           variant="gold"
           size="lg"
           onClick={handleMainARClick}
-          className={`w-full tracking-wider uppercase text-xs font-semibold flex items-center justify-center space-x-2 h-12 ${className}`}
+          className={`w-full tracking-wider uppercase text-xs font-semibold flex items-center justify-center space-x-2 h-12 shadow-sm ${className}`}
           {...props}
         >
           <span>📱</span>
           <span>View in Augmented Reality (AR)</span>
         </Button>
+
+        {/* Secondary Info / Alternative Options */}
+        <div className="flex items-center justify-between text-[11px] text-secondary px-1">
+          <button
+            type="button"
+            onClick={() => setShowGuidanceModal(true)}
+            className="underline hover:text-foreground transition-colors"
+          >
+            AR Instructions & Device Tips
+          </button>
+          {normalizedUsdzUrl && (
+            <button
+              type="button"
+              onClick={launchAppleQuickLook}
+              className="text-[#C5A572] font-semibold hover:underline"
+            >
+              Direct Apple Quick Look
+            </button>
+          )}
+        </div>
       </div>
 
-      {/* AR Guidance & Launch Modal */}
+      {/* FULL REAL-WORLD CAMERA AR EXPERIENCE */}
+      {showRealWorldAR && (
+        <RealWorldARExperience
+          glbUrl={normalizedGlbUrl}
+          usdzUrl={normalizedUsdzUrl}
+          productName={title}
+          isOpen={showRealWorldAR}
+          onClose={() => setShowRealWorldAR(false)}
+          initialPlacementMode={placementMode}
+        />
+      )}
+
+      {/* AR Guidance & Manual Selection Modal */}
       {showGuidanceModal && (
         <div className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-3 sm:p-4 backdrop-blur-sm">
           <div className="bg-white border border-border max-w-lg w-full p-4 sm:p-6 space-y-4 max-h-[90vh] overflow-y-auto shadow-xl">
@@ -176,7 +167,7 @@ export function ARLaunchButton({
             <div className="flex items-center justify-between border-b border-border pb-3">
               <div className="space-y-0.5">
                 <span className="text-[10px] uppercase tracking-wider text-primary font-semibold">
-                  Augmented Reality Experience
+                  Augmented Reality Guide
                 </span>
                 <h3 className="text-sm sm:text-base font-semibold text-foreground">{title}</h3>
               </div>
@@ -191,19 +182,9 @@ export function ARLaunchButton({
             {/* Step-by-Step AR Guidance */}
             <div className="space-y-4 text-xs">
               <div className="p-3 bg-[#FAF7F2] border border-[#C5A572]/40 text-[#202020] space-y-1">
-                <p className="font-semibold text-xs">
-                  {isAndroid
-                    ? 'Android ARCore Scene Viewer Ready'
-                    : isIOS
-                    ? usdzUrl
-                      ? 'Apple ARKit Quick Look Ready'
-                      : 'Apple Quick Look Unavailable'
-                    : 'Real-World Architectural Scale Inspection'}
-                </p>
+                <p className="font-semibold text-xs">Real-World Camera Wall Alignment</p>
                 <p className="text-[11px] text-secondary leading-relaxed">
-                  {isIOS && !usdzUrl
-                    ? 'This product does not have an Apple USDZ asset configured. The regular 3D viewer remains available for interactive on-screen inspection.'
-                    : 'The model will be placed in your physical room at actual 1:1 scale (true manufactured dimensions).'}
+                  The model will be placed in your physical room at actual 1:1 scale (true manufactured dimensions) using your mobile device camera.
                 </p>
               </div>
 
@@ -214,12 +195,8 @@ export function ARLaunchButton({
                     1
                   </span>
                   <div>
-                    <strong className="text-foreground block">Camera Permission</strong>
-                    <span>
-                      {isIOS
-                        ? 'Safari will prompt to open Apple Quick Look using the native ARKit engine.'
-                        : 'Allow Google Chrome and Google Play Services for AR (ARCore) to access your camera when prompted.'}
-                    </span>
+                    <strong className="text-foreground block">Allow Camera Access</strong>
+                    <span>Grant camera permission so your device can display the live room environment.</span>
                   </div>
                 </div>
 
@@ -229,12 +206,10 @@ export function ARLaunchButton({
                   </span>
                   <div>
                     <strong className="text-foreground block">
-                      {placementMode === 'wall'
-                        ? 'Scan Vertical Wall Surface'
-                        : 'Scan Floor Surface'}
+                      {placementMode === 'wall' ? 'Scan Vertical Wall Surface' : 'Scan Floor Surface'}
                     </strong>
                     <span>
-                      Aim your device at a well-lit {placementMode === 'wall' ? 'wall' : 'floor'} and slowly move it in a circle to detect surface depth.
+                      Aim your phone at a well-lit {placementMode === 'wall' ? 'wall' : 'floor'} and slowly move it across the surface.
                     </span>
                   </div>
                 </div>
@@ -245,9 +220,7 @@ export function ARLaunchButton({
                   </span>
                   <div>
                     <strong className="text-foreground block">Place at 1:1 Scale</strong>
-                    <span>
-                      Tap on the detected surface reticle to anchor the architectural model at true manufactured size.
-                    </span>
+                    <span>Tap &quot;Place on Wall&quot; to anchor the model at true manufactured size.</span>
                   </div>
                 </div>
 
@@ -256,11 +229,9 @@ export function ARLaunchButton({
                     4
                   </span>
                   <div>
-                    <strong className="text-foreground block">Reposition & Inspect</strong>
+                    <strong className="text-foreground block">4-Corner Opening Fitting</strong>
                     <span>
-                      {isIOS
-                        ? 'Walk around to inspect true physical scale. When finished, tap "Done" to return seamlessly to the showroom website.'
-                        : 'Drag with one finger to align with your wall opening. Step closer or walk around to inspect hardware and frame joints.'}
+                      Use the &quot;Fit Opening&quot; tool to calibrate the boundary frame against your actual doorway or window opening.
                     </span>
                   </div>
                 </div>
@@ -269,70 +240,38 @@ export function ARLaunchButton({
 
             {/* Launch Actions */}
             <div className="pt-3 border-t border-border space-y-2">
-              {isAndroid ? (
-                <>
-                  <Button
-                    variant="gold"
-                    size="lg"
-                    className="w-full text-xs uppercase tracking-wider font-semibold"
-                    onClick={launchSceneViewer}
-                  >
-                    Launch Android Scene Viewer
-                  </Button>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    className="w-full text-xs"
-                    onClick={launchWebXR}
-                  >
-                    Or Launch In-Browser WebXR AR
-                  </Button>
-                </>
-              ) : isIOS ? (
-                usdzUrl ? (
-                  <Button
-                    variant="gold"
-                    size="lg"
-                    className="w-full text-xs uppercase tracking-wider font-semibold"
-                    onClick={launchAppleQuickLook}
-                  >
-                    Launch Apple AR Quick Look
-                  </Button>
-                ) : (
-                  <div className="space-y-3">
-                    <div className="p-3 bg-muted/40 border border-border text-[11px] text-secondary">
-                      <p className="font-semibold text-foreground pb-1">Apple USDZ Asset Pending</p>
-                      <p>
-                        Apple AR Quick Look requires a dedicated USDZ file. This product currently only provides a GLB model. You can continue rotating and inspecting the 3D model in your Safari browser.
-                      </p>
-                    </div>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      className="w-full text-xs"
-                      onClick={() => setShowGuidanceModal(false)}
-                    >
-                      Continue in 3D Viewport
-                    </Button>
-                  </div>
-                )
-              ) : (
-                <div className="space-y-2">
-                  <div className="p-3 bg-muted/40 border border-border text-[11px] text-secondary">
-                    <p className="font-semibold text-foreground pb-1">Desktop Device Detected</p>
-                    <p>
-                      To place this door or window on your physical room wall, open this page on an Android phone (with ARCore) or an iPhone (iOS 12+).
-                    </p>
-                  </div>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    className="w-full text-xs"
-                    onClick={() => setShowGuidanceModal(false)}
-                  >
-                    Continue Viewing on Desktop 3D Viewport
-                  </Button>
-                </div>
+              <Button
+                variant="gold"
+                size="lg"
+                className="w-full text-xs uppercase tracking-wider font-semibold"
+                onClick={() => {
+                  setShowGuidanceModal(false);
+                  setShowRealWorldAR(true);
+                }}
+              >
+                Launch In-Camera AR Experience
+              </Button>
+
+              {isAndroid && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="w-full text-xs"
+                  onClick={launchSceneViewer}
+                >
+                  Or Launch Android Scene Viewer (ARCore)
+                </Button>
+              )}
+
+              {isIOS && normalizedUsdzUrl && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="w-full text-xs"
+                  onClick={launchAppleQuickLook}
+                >
+                  Or Launch Native Apple AR Quick Look
+                </Button>
               )}
             </div>
           </div>
