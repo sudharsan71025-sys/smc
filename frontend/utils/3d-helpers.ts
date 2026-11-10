@@ -50,12 +50,13 @@ export interface SceneViewerOptions {
   linkUrl: string;
   resizable?: boolean;
   verticalPlacement?: boolean;
+  mode?: 'ar_only' | 'ar_preferred';
 }
 
 /**
  * Generates an Android Scene Viewer intent URI according to Google ARCore specification
  * - file: raw GLB URL
- * - mode=ar_preferred: opens in camera AR mode with surface detection
+ * - mode=ar_only: forces camera AR mode with real-world surface detection and world anchoring
  * - resizable=false: locks to 1:1 real-world physical scale
  * - enable_vertical_placement: enables vertical wall plane detection
  * - link: URL to return to upon exiting Scene Viewer
@@ -71,6 +72,7 @@ export const buildSceneViewerUrl = (
   let linkUrl: string;
   let resizable = false;
   let verticalPlacement = true;
+  let mode: 'ar_only' | 'ar_preferred' = 'ar_only';
 
   if (typeof glbUrlOrOptions === 'object') {
     glbUrl = glbUrlOrOptions.glbUrl;
@@ -81,6 +83,9 @@ export const buildSceneViewerUrl = (
     }
     if (glbUrlOrOptions.verticalPlacement !== undefined) {
       verticalPlacement = glbUrlOrOptions.verticalPlacement;
+    }
+    if (glbUrlOrOptions.mode !== undefined) {
+      mode = glbUrlOrOptions.mode;
     }
   } else {
     glbUrl = glbUrlOrOptions;
@@ -93,7 +98,7 @@ export const buildSceneViewerUrl = (
   const encodedLink = encodeURIComponent(linkUrl);
   const encodedFallback = encodeURIComponent(linkUrl || glbUrl);
 
-  let query = `file=${encodedModelUrl}&mode=ar_preferred&title=${encodedTitle}&link=${encodedLink}&resizable=${resizable}`;
+  let query = `file=${encodedModelUrl}&mode=${mode}&title=${encodedTitle}&link=${encodedLink}&resizable=${resizable}`;
   if (verticalPlacement) {
     query += `&enable_vertical_placement=true`;
   }

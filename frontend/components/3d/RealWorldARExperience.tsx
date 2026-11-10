@@ -4,7 +4,15 @@ import React, { useRef, useEffect, useState, useCallback, useMemo } from 'react'
 import * as THREE from 'three';
 import { GLTFLoader, GLTF } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { normalizeModelUrl } from '@/lib/api-url';
-import { X } from 'lucide-react';
+import { buildSceneViewerUrl, buildQuickLookUrl } from '@/utils/3d-helpers';
+import { X, Sparkles } from 'lucide-react';
+
+interface WebXRNavigator {
+  xr?: {
+    isSessionSupported: (mode: string) => Promise<boolean>;
+    requestSession: (mode: string, options?: unknown) => Promise<XRSession>;
+  };
+}
 
 interface RealWorldARExperienceProps {
   glbUrl: string;
@@ -17,7 +25,9 @@ interface RealWorldARExperienceProps {
 
 export function RealWorldARExperience({
   glbUrl,
+  usdzUrl,
   thumbnailUrl,
+  productName,
   isOpen,
   onClose,
 }: RealWorldARExperienceProps) {
@@ -29,24 +39,43 @@ export function RealWorldARExperience({
   const [isPlaced, setIsPlaced] = useState(false);
   const [modelThumbnail, setModelThumbnail] = useState<string | null>(thumbnailUrl || null);
   const [isProductActive, setIsProductActive] = useState(true);
+  const [isWebXRActive, setIsWebXRActive] = useState(false);
+
+  // Platform detection
+  const isIOS = useMemo(() => {
+    if (typeof window === 'undefined') return false;
+    return /iPad|iPhone|iPod/.test(navigator.userAgent) && !('MSStream' in window);
+  }, []);
+
+  const isAndroid = useMemo(() => {
+    if (typeof window === 'undefined') return false;
+    return /android/i.test(navigator.userAgent);
+  }, []);
 
   // Three.js Scene References
   const sceneRef = useRef<THREE.Scene | null>(null);
   const cameraRef = useRef<THREE.PerspectiveCamera | null>(null);
   const rendererRef = useRef<THREE.WebGLRenderer | null>(null);
   const modelRef = useRef<THREE.Group | null>(null);
-  const placementRingRef = useRef<THREE.Mesh | null>(null);
+  const placementReticleRef = useRef<THREE.Group | null>(null);
+
+  // WebXR 6DOF ARCore References
+  const xrSessionRef = useRef<XRSession | null>(null);
+  const xrRefSpaceRef = useRef<XRReferenceSpace | null>(null);
+  const xrHitTestSourceRef = useRef<XRHitTestSource | null>(null);
+  const latestHitMatrixRef = useRef<Float32Array | null>(null);
+
+  // Fallback Camera Stream & Animation
   const videoStreamRef = useRef<MediaStream | null>(null);
   const animationFrameIdRef = useRef<number | null>(null);
 
   // Interactive Drag & Raycast Refs
   const isDraggingRef = useRef(false);
-  const dragPlaneRef = useRef<THREE.Plane>(new THREE.Plane(new THREE.Vector3(0, 0, 1), 2.5)); // Vertical wall plane at Z = -2.5m
-  const floorPlaneRef = useRef<THREE.Plane>(new THREE.Plane(new THREE.Vector3(0, 1, 0), 0));   // Floor plane at Y = 0
   const raycasterRef = useRef<THREE.Raycaster>(new THREE.Raycaster());
 
-  // Normalized GLB Model URL
+  // Normalized GLB & USDZ Model URLs
   const normalizedGlbUrl = useMemo(() => normalizeModelUrl(glbUrl), [glbUrl]);
+  const normalizedUsdzUrl = useMemo(() => normalizeModelUrl(usdzUrl), [usdzUrl]);
 
   // =========================================================================
   // 1. GENERATE DYNAMIC 2D SNAPSHOT OF 3D MODEL (FOR CIRCULAR THUMBNAIL)
@@ -102,8 +131,7 @@ export function RealWorldARExperience({
     fillLight.position.set(-2, 1, 2);
     scene.add(fillLight);
 
-    // Perspective Camera matching standard mobile camera FOV
-    // Camera is at typical standing eye-level (1.4m above floor) looking forward
+    // Perspective Camera matching mobile camera FOV
     const camera = new THREE.PerspectiveCamera(
       65,
       window.innerWidth / window.innerHeight,
@@ -113,18 +141,23 @@ export function RealWorldARExperience({
     camera.position.set(0, 1.4, 0);
     cameraRef.current = camera;
 
-    // Subtle placement touch ring animation in 3D
-    const ringGeo = new THREE.RingGeometry(0.08, 0.11, 32);
+    // Subtle gold placement reticle indicating detected real-world surface
+    const reticleGroup = new THREE.Group();
+    reticleGroup.visible = false;
+
+    const ringGeo = new THREE.RingGeometry(0.12, 0.15, 32);
     ringGeo.rotateX(-Math.PI / 2);
     const ringMat = new THREE.MeshBasicMaterial({
       color: 0xc5a572,
       side: THREE.DoubleSide,
       transparent: true,
-      opacity: 0,
+      opacity: 0.85,
     });
     const ringMesh = new THREE.Mesh(ringGeo, ringMat);
-    scene.add(ringMesh);
-    placementRingRef.current = ringMesh;
+    reticleGroup.add(ringMesh);
+
+    scene.add(reticleGroup);
+    placementReticleRef.current = reticleGroup;
 
     return { scene, camera };
   }, []);
@@ -151,11 +184,11 @@ export function RealWorldARExperience({
 
         let scaleFactor = 1.0;
         if (size.y > 500) {
-          scaleFactor = 0.001; // Exported in mm (e.g. 2100mm)
+          scaleFactor = 0.001; // Exported in mm
         } else if (size.y > 30) {
-          scaleFactor = 0.01; // Exported in cm (e.g. 210cm)
+          scaleFactor = 0.01; // Exported in cm
         } else {
-          scaleFactor = 1.0; // Exported in standard meters (e.g. 2.1m)
+          scaleFactor = 1.0; // Exported in standard meters
         }
 
         rawModel.scale.set(scaleFactor, scaleFactor, scaleFactor);
@@ -173,10 +206,10 @@ export function RealWorldARExperience({
         rawModel.position.y = -calibratedBox.min.y;
         rawModel.position.z = -calibratedBox.min.z;
 
-        // Wrap inside anchor group
+        // Wrap inside anchor group - attached directly to SCENE in WORLD SPACE (never to camera)
         const anchorGroup = new THREE.Group();
         anchorGroup.add(rawModel);
-        anchorGroup.visible = false; // Initially invisible until user taps a location!
+        anchorGroup.visible = false; // Initially invisible until user taps a location
 
         scene.add(anchorGroup);
         modelRef.current = anchorGroup;
@@ -193,7 +226,61 @@ export function RealWorldARExperience({
   );
 
   // =========================================================================
-  // 4. HARDWARE CAMERA & SENSOR TRACKING
+  // 4. WEBXR 6DOF ARCORE WORLD TRACKING SESSION
+  // =========================================================================
+  const startWebXRSession = useCallback(async () => {
+    if (!('xr' in navigator)) return false;
+    const xrNav = navigator as unknown as WebXRNavigator;
+    if (!xrNav.xr) return false;
+
+    try {
+      const supported = await xrNav.xr.isSessionSupported('immersive-ar');
+      if (!supported) return false;
+
+      const session = await xrNav.xr.requestSession('immersive-ar', {
+        requiredFeatures: ['hit-test', 'local-floor'],
+        optionalFeatures: ['dom-overlay', 'anchors', 'plane-detection'],
+        domOverlay: { root: mountRef.current },
+      });
+
+      xrSessionRef.current = session;
+      const renderer = rendererRef.current;
+      if (renderer) {
+        renderer.xr.enabled = true;
+        await renderer.xr.setSession(session);
+      }
+
+      // 6DOF world reference space established by ARCore
+      const refSpace = (await session.requestReferenceSpace('local-floor').catch(() =>
+        session.requestReferenceSpace('local')
+      )) as XRReferenceSpace;
+      xrRefSpaceRef.current = refSpace;
+
+      // Hit-test source for real-world surface raycasting
+      const viewerSpace = (await session.requestReferenceSpace('viewer')) as XRReferenceSpace;
+      const hitTestSource = (await (
+        session as unknown as { requestHitTestSource: (opts: unknown) => Promise<XRHitTestSource> }
+      ).requestHitTestSource({ space: viewerSpace })) as XRHitTestSource;
+      xrHitTestSourceRef.current = hitTestSource;
+
+      setIsWebXRActive(true);
+
+      session.addEventListener('end', () => {
+        xrSessionRef.current = null;
+        xrHitTestSourceRef.current = null;
+        setIsWebXRActive(false);
+        onClose();
+      });
+
+      return true;
+    } catch (err: unknown) {
+      console.warn('WebXR 6DOF session failed to initialize:', err);
+      return false;
+    }
+  }, [onClose]);
+
+  // =========================================================================
+  // 5. HARDWARE CAMERA FEED (FALLBACK)
   // =========================================================================
   const startCamera = useCallback(async () => {
     try {
@@ -212,11 +299,10 @@ export function RealWorldARExperience({
         await videoRef.current.play();
       }
 
-      // Gyroscope tracking: tilt camera in sync with phone pitch & roll
+      // Device motion tracking for camera rotation
       const handleOrientation = (e: DeviceOrientationEvent) => {
         if (!cameraRef.current) return;
         if (e.beta !== null && e.gamma !== null) {
-          // Subtle pitch adjustment: as user tilts phone, view shifts naturally
           const pitch = (e.beta - 90) * (Math.PI / 180) * 0.5;
           const roll = e.gamma * (Math.PI / 180) * 0.3;
           cameraRef.current.rotation.x = pitch;
@@ -234,95 +320,96 @@ export function RealWorldARExperience({
       videoStreamRef.current.getTracks().forEach((track) => track.stop());
       videoStreamRef.current = null;
     }
+    if (xrSessionRef.current) {
+      xrSessionRef.current.end().catch(() => {});
+      xrSessionRef.current = null;
+    }
   }, []);
 
   // =========================================================================
-  // 5. TAP ANYWHERE TO PLACE 3D MODEL (AMAZON / FLIPKART STYLE)
+  // 6. TAP TO PLACE 3D MODEL AT REAL WORLD-SPACE LOCATION
   // =========================================================================
+  const handlePlaceAtWorldPose = useCallback(
+    (worldPosition: THREE.Vector3, worldQuaternion?: THREE.Quaternion) => {
+      const model = modelRef.current;
+      if (!model) return;
+
+      // Attach model in SCENE WORLD SPACE (completely detached from camera)
+      model.position.copy(worldPosition);
+      if (worldQuaternion) {
+        model.quaternion.copy(worldQuaternion);
+      }
+      model.visible = true;
+      setIsPlaced(true);
+
+      // Hide placement reticle once anchored
+      if (placementReticleRef.current) {
+        placementReticleRef.current.visible = false;
+      }
+    },
+    []
+  );
+
   const handleScreenTap = useCallback(
     (clientX: number, clientY: number) => {
       const camera = cameraRef.current;
       const model = modelRef.current;
       if (!camera || !model) return;
 
-      // 1. Convert touch coordinates to Normalized Device Coordinates (-1 to +1)
+      // Mode A: WebXR ARCore Hit-Testing (6DOF Real World Anchor)
+      if (isWebXRActive && latestHitMatrixRef.current) {
+        const matrix = new THREE.Matrix4().fromArray(latestHitMatrixRef.current);
+        const position = new THREE.Vector3();
+        const quaternion = new THREE.Quaternion();
+        const scale = new THREE.Vector3();
+        matrix.decompose(position, quaternion, scale);
+
+        handlePlaceAtWorldPose(position, quaternion);
+        return;
+      }
+
+      // Mode B: Raycast against physical floor/wall in 3D world space
       const mouse = new THREE.Vector2(
         (clientX / window.innerWidth) * 2 - 1,
         -(clientY / window.innerHeight) * 2 + 1
       );
-
-      // 2. Cast ray from camera through touched screen pixel
       raycasterRef.current.setFromCamera(mouse, camera);
 
-      // 3. Perform AR Raycast against the real-world wall plane (Z = -2.5m) and floor plane (Y = 0)
-      const wallIntersection = new THREE.Vector3();
-      const hitWall = raycasterRef.current.ray.intersectPlane(
-        dragPlaneRef.current,
-        wallIntersection
-      );
+      // Real-world ground plane at Y = 0 (floor) and vertical wall at Z = -2.5m
+      const wallPlane = new THREE.Plane(new THREE.Vector3(0, 0, 1), 2.5);
+      const floorPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
 
-      const floorIntersection = new THREE.Vector3();
-      const hitFloor = raycasterRef.current.ray.intersectPlane(
-        floorPlaneRef.current,
-        floorIntersection
-      );
-
-      // Choose most appropriate intersection based on touch ray angle
-      let targetX = 0;
-      let targetZ = -2.5;
+      const wallHit = new THREE.Vector3();
+      const floorHit = new THREE.Vector3();
+      const hitWall = raycasterRef.current.ray.intersectPlane(wallPlane, wallHit);
+      const hitFloor = raycasterRef.current.ray.intersectPlane(floorPlane, floorHit);
 
       if (hitWall) {
-        targetX = wallIntersection.x;
-        targetZ = wallIntersection.z;
+        handlePlaceAtWorldPose(new THREE.Vector3(wallHit.x, 0, wallHit.z));
       } else if (hitFloor) {
-        targetX = floorIntersection.x;
-        targetZ = floorIntersection.z;
-      }
-
-      // 4. Place 3D model at the EXACT touched location
-      // Base sits flush at floor level (Y = 0), matching real doorway installations
-      model.position.set(targetX, 0, targetZ);
-      model.visible = true;
-      setIsPlaced(true);
-
-      // 5. Trigger subtle placement ripple effect at touch location
-      if (placementRingRef.current) {
-        placementRingRef.current.position.set(targetX, 0.02, targetZ);
-        const mat = placementRingRef.current.material as THREE.MeshBasicMaterial;
-        mat.opacity = 0.9;
-        const fade = () => {
-          if (mat.opacity > 0.05) {
-            mat.opacity -= 0.08;
-            requestAnimationFrame(fade);
-          } else {
-            mat.opacity = 0;
-          }
-        };
-        requestAnimationFrame(fade);
+        handlePlaceAtWorldPose(new THREE.Vector3(floorHit.x, 0, floorHit.z));
       }
     },
-    []
+    [isWebXRActive, handlePlaceAtWorldPose]
   );
 
   // =========================================================================
-  // 6. TOUCH DRAG-AND-DROP REPOSITIONING
+  // 7. TOUCH DRAG-AND-DROP WORLD-SPACE REPOSITIONING
   // =========================================================================
   const handleTouchStart = (e: React.TouchEvent) => {
     if (e.touches.length !== 1) return;
     const touch = e.touches[0];
 
-    // Check if touching near or on the model to drag, or placing for the first time
     const camera = cameraRef.current;
     const model = modelRef.current;
     if (!camera || !model) return;
 
     if (!isPlaced) {
-      // Tap to place for the first time
       handleScreenTap(touch.clientX, touch.clientY);
       return;
     }
 
-    // Check if touching placed model
+    // Check if touching the model to initiate drag
     const mouse = new THREE.Vector2(
       (touch.clientX / window.innerWidth) * 2 - 1,
       -(touch.clientY / window.innerHeight) * 2 + 1
@@ -333,7 +420,7 @@ export function RealWorldARExperience({
     if (intersects.length > 0) {
       isDraggingRef.current = true;
     } else {
-      // Tapping elsewhere on screen relocates the model to the newly tapped location
+      // Tap elsewhere to reposition model
       handleScreenTap(touch.clientX, touch.clientY);
     }
   };
@@ -343,18 +430,30 @@ export function RealWorldARExperience({
     if (e.touches.length !== 1) return;
 
     const touch = e.touches[0];
+
+    // Mode A: WebXR continuous surface hit-testing during drag
+    if (isWebXRActive && latestHitMatrixRef.current) {
+      const matrix = new THREE.Matrix4().fromArray(latestHitMatrixRef.current);
+      const position = new THREE.Vector3();
+      const quaternion = new THREE.Quaternion();
+      const scale = new THREE.Vector3();
+      matrix.decompose(position, quaternion, scale);
+
+      modelRef.current.position.copy(position);
+      return;
+    }
+
+    // Mode B: Raycast along the wall plane in world space
     const mouse = new THREE.Vector2(
       (touch.clientX / window.innerWidth) * 2 - 1,
       -(touch.clientY / window.innerHeight) * 2 + 1
     );
-
-    // Raycast to the wall plane to update position in real-world space
     raycasterRef.current.setFromCamera(mouse, cameraRef.current);
+    const wallPlane = new THREE.Plane(new THREE.Vector3(0, 0, 1), 2.5);
     const intersection = new THREE.Vector3();
-    const hit = raycasterRef.current.ray.intersectPlane(dragPlaneRef.current, intersection);
+    const hit = raycasterRef.current.ray.intersectPlane(wallPlane, intersection);
 
     if (hit) {
-      // Glide smoothly across the wall while staying on the floor
       modelRef.current.position.x = intersection.x;
       modelRef.current.position.z = intersection.z;
     }
@@ -364,7 +463,7 @@ export function RealWorldARExperience({
     isDraggingRef.current = false;
   };
 
-  // Mouse handlers for desktop/laptop pairing tests
+  // Mouse handlers for desktop browser testing
   const handleMouseDown = (e: React.MouseEvent) => {
     if (!isPlaced) {
       handleScreenTap(e.clientX, e.clientY);
@@ -396,8 +495,9 @@ export function RealWorldARExperience({
       -(e.clientY / window.innerHeight) * 2 + 1
     );
     raycasterRef.current.setFromCamera(mouse, cameraRef.current);
+    const wallPlane = new THREE.Plane(new THREE.Vector3(0, 0, 1), 2.5);
     const intersection = new THREE.Vector3();
-    const hit = raycasterRef.current.ray.intersectPlane(dragPlaneRef.current, intersection);
+    const hit = raycasterRef.current.ray.intersectPlane(wallPlane, intersection);
     if (hit) {
       modelRef.current.position.x = intersection.x;
       modelRef.current.position.z = intersection.z;
@@ -409,7 +509,40 @@ export function RealWorldARExperience({
   };
 
   // =========================================================================
-  // 7. MAIN RUNTIME RENDER LOOP
+  // 8. NATIVE PLATFORM LAUNCHERS (100% 6DOF WORLD ANCHORING)
+  // =========================================================================
+  const handleLaunchNativeAR = () => {
+    if (isIOS && normalizedUsdzUrl) {
+      // Native Apple ARKit Quick Look (LiDAR & VIO World Anchoring)
+      const qlUrl = buildQuickLookUrl({
+        usdzUrl: normalizedUsdzUrl,
+        canonicalWebPageURL: typeof window !== 'undefined' ? window.location.href : '',
+        allowsContentScaling: false,
+      });
+      const a = document.createElement('a');
+      a.setAttribute('rel', 'ar');
+      a.setAttribute('href', qlUrl);
+      const img = document.createElement('img');
+      a.appendChild(img);
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+    } else if (isAndroid && normalizedGlbUrl) {
+      // Native Android ARCore Scene Viewer (Physical Wall Anchoring)
+      const intentUrl = buildSceneViewerUrl({
+        glbUrl: normalizedGlbUrl,
+        title: productName,
+        linkUrl: typeof window !== 'undefined' ? window.location.href : '',
+        mode: 'ar_only',
+        resizable: false,
+        verticalPlacement: true,
+      });
+      window.location.href = intentUrl;
+    }
+  };
+
+  // =========================================================================
+  // 9. MAIN RUNTIME RENDER LOOP (WITH ARCORE 6DOF VIEWER TRACKING)
   // =========================================================================
   useEffect(() => {
     if (!isOpen) return;
@@ -425,16 +558,45 @@ export function RealWorldARExperience({
     rendererRef.current = renderer;
     container.appendChild(renderer.domElement);
 
-    // Load Model & Start Camera
+    // Load Model
     loadModel(scene);
-    startCamera();
 
-    // Render loop
-    const render = () => {
+    // Attempt WebXR 6DOF Session on Android, or start Camera stream
+    startWebXRSession().then((webxrStarted) => {
+      if (!webxrStarted) {
+        startCamera();
+      }
+    });
+
+    // 6DOF Animation Loop
+    const renderLoop = (_time: number, frame?: XRFrame) => {
+      // In WebXR, Three.js camera position & orientation are updated automatically
+      // by ARCore's 6DOF tracking (frame.getViewerPose).
+      // The model remains fixed at its world-space anchor in scene!
+      if (frame && xrHitTestSourceRef.current && xrRefSpaceRef.current && !isPlaced) {
+        const hitResults = frame.getHitTestResults(xrHitTestSourceRef.current);
+        if (hitResults.length > 0) {
+          const hit = hitResults[0];
+          const hitPose = hit.getPose(xrRefSpaceRef.current);
+          if (hitPose) {
+            latestHitMatrixRef.current = hitPose.transform.matrix;
+            if (placementReticleRef.current) {
+              placementReticleRef.current.visible = true;
+              placementReticleRef.current.matrix.fromArray(hitPose.transform.matrix);
+              placementReticleRef.current.matrix.decompose(
+                placementReticleRef.current.position,
+                placementReticleRef.current.quaternion,
+                placementReticleRef.current.scale
+              );
+            }
+          }
+        }
+      }
+
       renderer.render(scene, camera);
-      animationFrameIdRef.current = requestAnimationFrame(render);
     };
-    render();
+
+    renderer.setAnimationLoop(renderLoop);
 
     // Resize handler
     const handleResize = () => {
@@ -447,8 +609,10 @@ export function RealWorldARExperience({
 
     return () => {
       window.removeEventListener('resize', handleResize);
-      if (animationFrameIdRef.current) {
-        cancelAnimationFrame(animationFrameIdRef.current);
+      renderer.setAnimationLoop(null);
+      const animId = animationFrameIdRef.current;
+      if (animId) {
+        cancelAnimationFrame(animId);
       }
       stopCamera();
       if (rendererRef.current) {
@@ -458,7 +622,7 @@ export function RealWorldARExperience({
         }
       }
     };
-  }, [isOpen, initThreeScene, loadModel, startCamera, stopCamera]);
+  }, [isOpen, initThreeScene, loadModel, startWebXRSession, startCamera, stopCamera, isPlaced]);
 
   if (!isOpen) return null;
 
@@ -472,7 +636,7 @@ export function RealWorldARExperience({
       onMouseMove={handleMouseMove}
       onMouseUp={handleMouseUp}
     >
-      {/* 1. Live Camera Feed (100% Full Screen Background) */}
+      {/* 1. Live Camera Feed (100% Full Screen Background when WebXR DOM overlay is inactive) */}
       <video
         ref={videoRef}
         playsInline
@@ -481,7 +645,7 @@ export function RealWorldARExperience({
         className="absolute inset-0 w-full h-full object-cover z-0 pointer-events-none"
       />
 
-      {/* 2. WebGL 3D Layer */}
+      {/* 2. WebGL 3D Layer (6DOF World Anchoring) */}
       <div ref={mountRef} className="absolute inset-0 w-full h-full z-10 pointer-events-none" />
 
       {/* 3. Minimal Discreet Exit Button (Top Right) */}
@@ -494,7 +658,19 @@ export function RealWorldARExperience({
         <X className="w-5 h-5" />
       </button>
 
-      {/* 4. THE ONLY VISIBLE UI CONTROL: Small Circular Product Thumbnail (Bottom Center) */}
+      {/* 4. Native ARKit / ARCore One-Tap Pill (Top Left - Discreet) */}
+      {((isIOS && normalizedUsdzUrl) || isAndroid) && (
+        <button
+          type="button"
+          onClick={handleLaunchNativeAR}
+          className="absolute top-4 left-4 z-30 px-3 py-1.5 rounded-full bg-black/40 hover:bg-black/70 border border-white/20 text-white/90 text-[11px] font-medium flex items-center space-x-1.5 backdrop-blur-sm shadow-md active:scale-95 transition-all"
+        >
+          <Sparkles className="w-3.5 h-3.5 text-[#C5A572]" />
+          <span>{isIOS ? 'Native Apple ARKit' : 'Native Google ARCore'}</span>
+        </button>
+      )}
+
+      {/* 5. THE ONLY PROMINENT UI CONTROL: Circular Product Thumbnail (Bottom Center) */}
       <div className="absolute bottom-8 left-1/2 -translate-x-1/2 z-30 pointer-events-auto">
         <button
           type="button"
@@ -512,7 +688,7 @@ export function RealWorldARExperience({
               className="w-full h-full object-contain rounded-full"
             />
           ) : (
-            // Elegant Architectural Door Silhouette if thumbnail is loading
+            // Architectural Door Silhouette if thumbnail is loading
             <div className="w-full h-full rounded-full bg-[#FAF7F2] flex items-center justify-center border border-[#C5A572]/30">
               <div className="w-6 h-10 border-2 border-[#202020] rounded-t-sm flex items-center justify-end pr-0.5">
                 <div className="w-1 h-1 rounded-full bg-[#C5A572]" />
