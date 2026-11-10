@@ -47,6 +47,8 @@ export function ModelViewerCanvas({
   // Loading & Progress State
   const [loadProgress, setLoadProgress] = useState(0);
   const [isLoaded, setIsLoaded] = useState(false);
+  const isLoadedRef = useRef(isLoaded);
+  isLoadedRef.current = isLoaded;
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [autoRotate, setAutoRotate] = useState(initialAutoRotate);
   const [loadDuration, setLoadDuration] = useState<number | null>(null);
@@ -68,25 +70,33 @@ export function ModelViewerCanvas({
   // Track start time for performance measurement
   const loadStartTimeRef = useRef<number>(Date.now());
 
-  // Attach model-viewer DOM event listeners
+  // Set ios-src attribute independently without interfering with 3D WebGL rendering
   useEffect(() => {
     const el = modelViewerRef.current;
+    if (el && normalizedIosSrc) {
+      el.setAttribute('ios-src', normalizedIosSrc);
+    }
+  }, [normalizedIosSrc, modelViewerRef]);
+
+  // Attach model-viewer DOM event listeners
+  useEffect(() => {
+    const el = modelViewerRef.current as (HTMLElement & { loaded?: boolean }) | null;
     if (!el || !normalizedSrc) return;
 
-    // If this model source is already loaded, keep it loaded and do not reset
-    if (lastLoadedSrcRef.current === normalizedSrc && isLoaded) {
+    // If this model is already loaded in the element, keep it loaded
+    if (lastLoadedSrcRef.current === normalizedSrc && (isLoadedRef.current || el.loaded)) {
+      setIsLoaded(true);
+      setLoadProgress(100);
       return;
     }
 
-    el.setAttribute('src', normalizedSrc);
-    if (normalizedIosSrc) {
-      el.setAttribute('ios-src', normalizedIosSrc);
+    if (lastLoadedSrcRef.current !== normalizedSrc) {
+      loadStartTimeRef.current = Date.now();
+      setIsLoaded(false);
+      setErrorMessage(null);
+      setLoadProgress(0);
+      el.setAttribute('src', normalizedSrc);
     }
-
-    loadStartTimeRef.current = Date.now();
-    setIsLoaded(false);
-    setErrorMessage(null);
-    setLoadProgress(0);
 
     const handleProgress = (event: Event) => {
       const customEvent = event as CustomEvent<{ totalProgress: number }>;
@@ -120,12 +130,26 @@ export function ModelViewerCanvas({
     el.addEventListener('load', handleLoad);
     el.addEventListener('error', handleError);
 
+    // If the element is already loaded, resolve immediately
+    if (el.loaded) {
+      handleLoad();
+    }
+
+    // Safety polling: in case the load event fired before listeners were registered
+    const pollTimer = setInterval(() => {
+      if (el.loaded) {
+        handleLoad();
+        clearInterval(pollTimer);
+      }
+    }, 250);
+
     return () => {
+      clearInterval(pollTimer);
       el.removeEventListener('progress', handleProgress);
       el.removeEventListener('load', handleLoad);
       el.removeEventListener('error', handleError);
     };
-  }, [normalizedSrc, normalizedIosSrc, isReady, modelViewerRef]);
+  }, [normalizedSrc, isReady, modelViewerRef]);
 
   // Reset Camera View
   const handleResetCamera = useCallback(() => {

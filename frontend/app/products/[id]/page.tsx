@@ -29,6 +29,11 @@ export default function ProductViewerPage({
   const [errorMessage, setErrorMessage] = useState('');
   const [loadTimeMs, setLoadTimeMs] = useState<number | null>(null);
   const [placementMode, setPlacementMode] = useState<'wall' | 'floor'>('wall');
+  const [canonicalUrl, setCanonicalUrl] = useState<string | undefined>(undefined);
+
+  useEffect(() => {
+    setCanonicalUrl(window.location.href);
+  }, []);
 
   const handleModelLoaded = useCallback((ms: number) => {
     setLoadTimeMs(ms);
@@ -68,7 +73,7 @@ export default function ProductViewerPage({
   const quickLookUrl = usdzUrl
     ? buildQuickLookUrl({
         usdzUrl,
-        canonicalWebPageURL: typeof window !== 'undefined' ? window.location.href : undefined,
+        canonicalWebPageURL: canonicalUrl,
         allowsContentScaling: false,
       })
     : undefined;
