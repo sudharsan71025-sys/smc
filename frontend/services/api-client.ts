@@ -1,11 +1,8 @@
 import axios, { AxiosError, InternalAxiosRequestConfig } from 'axios';
 import { ApiResponse, ApiErrorResponse } from '@/types/api';
-
-const API_BASE_URL =
-  process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000/api/v1';
+import { getApiBaseUrl } from '@/lib/api-url';
 
 export const apiClient = axios.create({
-  baseURL: API_BASE_URL,
   timeout: 15000,
   headers: {
     'Content-Type': 'application/json',
@@ -13,9 +10,10 @@ export const apiClient = axios.create({
   withCredentials: true,
 });
 
-// Request interceptor to attach JWT auth token
+// Request interceptor to attach JWT auth token and set dynamic API host
 apiClient.interceptors.request.use(
   (config: InternalAxiosRequestConfig) => {
+    config.baseURL = getApiBaseUrl();
     if (typeof window !== 'undefined') {
       const token = localStorage.getItem('smc_auth_token');
       if (token && config.headers) {

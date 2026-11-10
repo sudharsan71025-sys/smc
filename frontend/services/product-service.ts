@@ -1,7 +1,5 @@
 import { Product } from '../types/product';
-
-const API_BASE_URL =
-  process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000/api/v1';
+import { getApiBaseUrl } from '../lib/api-url';
 
 export class ProductService {
   /**
@@ -11,7 +9,8 @@ export class ProductService {
     data: Product[];
     meta: { total: number; published: number; draft: number };
   }> {
-    const res = await fetch(`${API_BASE_URL}/products/admin`, {
+    const baseUrl = getApiBaseUrl();
+    const res = await fetch(`${baseUrl}/products/admin`, {
       headers: {
         Authorization: `Bearer ${token}`,
       },
@@ -34,7 +33,8 @@ export class ProductService {
    * Fetch only published products for Users / Public catalog
    */
   async getPublishedProducts(search?: string): Promise<Product[]> {
-    const url = new URL(`${API_BASE_URL}/products`);
+    const baseUrl = getApiBaseUrl();
+    const url = new URL(`${baseUrl}/products`);
     if (search) {
       url.searchParams.set('search', search);
     }
@@ -56,12 +56,13 @@ export class ProductService {
    * Fetch a single product by ID
    */
   async getProductById(id: string, token?: string): Promise<Product> {
+    const baseUrl = getApiBaseUrl();
     const headers: Record<string, string> = {};
     if (token) {
       headers.Authorization = `Bearer ${token}`;
     }
 
-    const res = await fetch(`${API_BASE_URL}/products/${id}`, {
+    const res = await fetch(`${baseUrl}/products/${id}`, {
       headers,
       cache: 'no-store',
     });
@@ -79,7 +80,8 @@ export class ProductService {
    * Create a new product (with GLB file and optional USDZ file)
    */
   async createProduct(formData: FormData, token: string): Promise<Product> {
-    const res = await fetch(`${API_BASE_URL}/products`, {
+    const baseUrl = getApiBaseUrl();
+    const res = await fetch(`${baseUrl}/products`, {
       method: 'POST',
       headers: {
         Authorization: `Bearer ${token}`,
@@ -104,6 +106,7 @@ export class ProductService {
     data: FormData | { name?: string; status?: 'draft' | 'published' },
     token: string
   ): Promise<Product> {
+    const baseUrl = getApiBaseUrl();
     const headers: Record<string, string> = {
       Authorization: `Bearer ${token}`,
     };
@@ -116,7 +119,7 @@ export class ProductService {
       body = JSON.stringify(data);
     }
 
-    const res = await fetch(`${API_BASE_URL}/products/${id}`, {
+    const res = await fetch(`${baseUrl}/products/${id}`, {
       method: 'PUT',
       headers,
       body,
@@ -135,7 +138,8 @@ export class ProductService {
    * Explicitly publish a product to make it visible to users
    */
   async publishProduct(id: string, token: string): Promise<Product> {
-    const res = await fetch(`${API_BASE_URL}/products/${id}/publish`, {
+    const baseUrl = getApiBaseUrl();
+    const res = await fetch(`${baseUrl}/products/${id}/publish`, {
       method: 'PATCH',
       headers: {
         Authorization: `Bearer ${token}`,
@@ -155,7 +159,8 @@ export class ProductService {
    * Delete product and clean up 3D files from storage
    */
   async deleteProduct(id: string, token: string): Promise<void> {
-    const res = await fetch(`${API_BASE_URL}/products/${id}`, {
+    const baseUrl = getApiBaseUrl();
+    const res = await fetch(`${baseUrl}/products/${id}`, {
       method: 'DELETE',
       headers: {
         Authorization: `Bearer ${token}`,

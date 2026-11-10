@@ -19,13 +19,19 @@ export const createApp = (): Application => {
     })
   );
 
-  // CORS setup - allows local dev, configured client origin, Render and Vercel production/preview deployments
+  // CORS setup - allows local dev, local Wi-Fi mobile testing (192.168.x.x), configured client origin, Render and Vercel
   const configuredOrigins = env.CLIENT_ORIGIN.split(',').map((o) => o.trim());
   const allowedOrigins = [
     ...configuredOrigins,
     'http://localhost:3000',
     'http://127.0.0.1:3000',
   ];
+
+  const isLocalOrPrivateNetwork = (origin: string): boolean => {
+    return /^https?:\/\/(localhost|127\.0\.0\.1|192\.168\.\d{1,3}\.\d{1,3}|10\.\d{1,3}\.\d{1,3}\.\d{1,3}|172\.(1[6-9]|2\d|3[01])\.\d{1,3}\.\d{1,3})(:\d+)?$/.test(
+      origin
+    );
+  };
 
   app.use(
     cors({
@@ -34,6 +40,7 @@ export const createApp = (): Application => {
         if (
           !origin ||
           allowedOrigins.includes(origin) ||
+          isLocalOrPrivateNetwork(origin) ||
           origin.endsWith('.vercel.app') ||
           origin.endsWith('.onrender.com')
         ) {
