@@ -209,6 +209,7 @@ export default function ProductViewerPage({
               {/* View in AR Action */}
               <div className="space-y-3 pt-1">
                 <ARLaunchButton
+                  productId={product?._id}
                   glbUrl={glbUrl}
                   usdzUrl={usdzUrl}
                   title={displayName}

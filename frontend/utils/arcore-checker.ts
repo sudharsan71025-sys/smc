@@ -138,3 +138,4 @@ export function openGooglePlayServicesForARStore(): void {
 
   window.location.href = ARCORE_PLAY_STORE_MARKET_URI;
 }
+

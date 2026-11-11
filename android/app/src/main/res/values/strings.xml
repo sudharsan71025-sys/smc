@@ -1,0 +1,10 @@
+<resources>
+    <string name="app_name">SMC Door &amp; Window AR</string>
+    <string name="scan_surface_hint">Point camera at a wall or door opening</string>
+    <string name="tap_to_place_hint">Wall detected. Tap to anchor door at 1:1 scale</string>
+    <string name="exit_ar">Exit AR</string>
+    <string name="loading_model">Downloading 3D model from SMC Showroom…</string>
+    <string name="error_loading_model">Failed to download 3D model. Check network connection.</string>
+    <string name="camera_permission_required">Camera permission is required to detect physical room surfaces.</string>
+</resources>
+

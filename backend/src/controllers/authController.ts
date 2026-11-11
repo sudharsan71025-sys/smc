@@ -121,3 +121,70 @@ export const getMe = asyncHandler(async (req: AuthenticatedRequest, res: Respons
     },
   });
 });
+
+/**
+ * Generate a short-lived single-use AR handoff token
+ * POST /api/v1/auth/handoff-token
+ */
+export const createHandoffToken = asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
+  const { productId } = req.body;
+  if (!productId) {
+    throw ApiError.badRequest('productId is required for AR handoff token generation');
+  }
+
+  const userId = req.user?._id?.toString() || 'anonymous';
+  const handoffToken = jwt.sign(
+    {
+      userId,
+      productId,
+      type: 'ar_native_handoff',
+    },
+    env.JWT_SECRET,
+    { expiresIn: '5m' }
+  );
+
+  return ApiResponse.success(res, {
+    message: 'Native AR handoff token generated successfully',
+    data: {
+      productId,
+      handoffToken,
+      deepLink: `smcar://product/${productId}?token=${handoffToken}`,
+      universalLink: `https://smc-frontend-cbou.onrender.com/ar/${productId}?token=${handoffToken}`,
+      expiresInSeconds: 300,
+    },
+  });
+});
+
+/**
+ * Verify a native AR handoff token
+ * POST /api/v1/auth/verify-handoff
+ */
+export const verifyHandoffToken = asyncHandler(async (req: Request, res: Response) => {
+  const { token } = req.body;
+  if (!token) {
+    throw ApiError.badRequest('Handoff token is required');
+  }
+
+  try {
+    const decoded = jwt.verify(token, env.JWT_SECRET) as {
+      userId: string;
+      productId: string;
+      type: string;
+    };
+
+    if (decoded.type !== 'ar_native_handoff') {
+      throw ApiError.unauthorized('Invalid handoff token type');
+    }
+
+    return ApiResponse.success(res, {
+      message: 'Native AR handoff token validated',
+      data: {
+        valid: true,
+        productId: decoded.productId,
+        userId: decoded.userId,
+      },
+    });
+  } catch {
+    throw ApiError.unauthorized('Native AR handoff token is invalid or has expired');
+  }
+});

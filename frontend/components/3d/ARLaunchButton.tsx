@@ -1,20 +1,25 @@
 'use client';
 
-import React, { useState, useMemo, useRef, useCallback, useEffect } from 'react';
+import React, { useState, useMemo, useRef, useCallback } from 'react';
 import { normalizeModelUrl, getPublicModelUrl } from '@/lib/api-url';
 import { buildSceneViewerUrl, buildQuickLookUrl } from '@/utils/3d-helpers';
-import {
-  runARCorePreflight,
-  openGooglePlayServicesForARStore,
-  checkCameraPermission,
-  ARCorePreflightResult,
-  CameraPermissionState,
-} from '@/utils/arcore-checker';
+import { openGooglePlayServicesForARStore } from '@/utils/arcore-checker';
 import { Button, ButtonProps } from '@/components/ui/button';
 import { RealWorldARExperience } from './RealWorldARExperience';
-import { X, ExternalLink, Smartphone, Camera, Download, RefreshCw, AlertCircle, ShieldCheck } from 'lucide-react';
+import {
+  X,
+  Smartphone,
+  AlertCircle,
+  ExternalLink,
+  ShieldAlert,
+  Sparkles,
+  Download,
+  Copy,
+  Check,
+} from 'lucide-react';
 
 interface ARLaunchButtonProps extends ButtonProps {
+  productId?: string;
   glbUrl?: string;
   usdzUrl?: string;
   title: string;
@@ -22,7 +27,29 @@ interface ARLaunchButtonProps extends ButtonProps {
   onPlacementModeChange?: (mode: 'wall' | 'floor') => void;
 }
 
+type DiagnosisReason =
+  | 'insecure_context'
+  | 'ios_safari'
+  | 'browser_unsupported'
+  | 'arcore_not_installed'
+  | 'permission_denied'
+  | 'desktop'
+  | 'general_error';
+
+interface ARDiagnosis {
+  reason: DiagnosisReason;
+  title: string;
+  message: string;
+  explanation: string;
+  canSceneViewer: boolean;
+  canQuickLook: boolean;
+  canNativeApp: boolean;
+  canPlayStore: boolean;
+  canCopyHttpsLink: boolean;
+}
+
 export function ARLaunchButton({
+  productId,
   glbUrl,
   usdzUrl,
   title,
@@ -31,22 +58,18 @@ export function ARLaunchButton({
   className,
   ...props
 }: ARLaunchButtonProps) {
-  // Active WebXR Session
+  // Active In-Website WebXR Session
   const [activeXRSession, setActiveXRSession] = useState<XRSession | null>(null);
 
   // Status & Preflight State
   const [isLaunching, setIsLaunching] = useState(false);
-  const [preflightState, setPreflightState] = useState<ARCorePreflightResult | null>(null);
-
-  // Dedicated Dialog States
-  const [showARCoreInstallModal, setShowARCoreInstallModal] = useState(false);
-  const [showCameraPermissionModal, setShowCameraPermissionModal] = useState(false);
-  const [showUnsupportedModal, setShowUnsupportedModal] = useState(false);
+  const [diagnosis, setDiagnosis] = useState<ARDiagnosis | null>(null);
+  const [copied, setCopied] = useState(false);
 
   // DOM Overlay Container Ref for WebXR
   const overlayContainerRef = useRef<HTMLDivElement>(null);
 
-  // Normalized URLs
+  // Normalized Model URLs
   const normalizedGlbUrl = useMemo(() => normalizeModelUrl(glbUrl), [glbUrl]);
   const publicGlbUrl = useMemo(() => getPublicModelUrl(glbUrl), [glbUrl]);
   const publicUsdzUrl = useMemo(() => getPublicModelUrl(usdzUrl), [usdzUrl]);
@@ -62,8 +85,8 @@ export function ARLaunchButton({
     return /android/i.test(navigator.userAgent);
   }, []);
 
-  // Launch Native Android ARCore Scene Viewer
-  const handleLaunchNativeAndroid = useCallback(() => {
+  // Launch Native Google ARCore Scene Viewer (Android system AR fallback)
+  const handleLaunchGoogleSceneViewer = useCallback(() => {
     if (!publicGlbUrl) return;
     const intentUrl = buildSceneViewerUrl({
       glbUrl: publicGlbUrl,
@@ -76,8 +99,8 @@ export function ARLaunchButton({
     window.location.href = intentUrl;
   }, [publicGlbUrl, title, placementMode]);
 
-  // Launch Native Apple ARKit Quick Look
-  const handleLaunchNativeIOS = useCallback(() => {
+  // Launch Native Apple ARKit Quick Look for iOS Safari users
+  const handleLaunchAppleQuickLook = useCallback(() => {
     if (!publicUsdzUrl) return;
     const qlUrl = buildQuickLookUrl({
       usdzUrl: publicUsdzUrl,
@@ -94,63 +117,7 @@ export function ARLaunchButton({
     document.body.removeChild(a);
   }, [publicUsdzUrl]);
 
-  // Auto-resume check when returning from Google Play Store or Settings
-  useEffect(() => {
-    const handleVisibilityChange = async () => {
-      if (document.visibilityState === 'visible') {
-        const result = await runARCorePreflight();
-        setPreflightState(result);
-        if (result.hasImmersiveAR && showARCoreInstallModal) {
-          setShowARCoreInstallModal(false);
-        }
-        if (result.cameraPermission === 'granted' && showCameraPermissionModal) {
-          setShowCameraPermissionModal(false);
-        }
-      }
-    };
-
-    document.addEventListener('visibilitychange', handleVisibilityChange);
-    window.addEventListener('focus', handleVisibilityChange);
-    return () => {
-      document.removeEventListener('visibilitychange', handleVisibilityChange);
-      window.removeEventListener('focus', handleVisibilityChange);
-    };
-  }, [showARCoreInstallModal, showCameraPermissionModal]);
-
-  // Request the real WebXR session synchronously on user gesture
-  const startGenuineWebXRSession = async () => {
-    if (!navigator.xr) return;
-
-    try {
-      const session = await navigator.xr.requestSession('immersive-ar', {
-        requiredFeatures: ['hit-test', 'local-floor'],
-        optionalFeatures: ['dom-overlay', 'anchors', 'plane-detection'],
-        domOverlay: overlayContainerRef.current ? { root: overlayContainerRef.current } : undefined,
-      });
-
-      setActiveXRSession(session);
-      setShowARCoreInstallModal(false);
-      setShowCameraPermissionModal(false);
-      setShowUnsupportedModal(false);
-    } catch (err: unknown) {
-      console.warn('WebXR requestSession exception:', err);
-      const errMsg = err instanceof Error ? err.message.toLowerCase() : '';
-
-      // Check if failure is due to missing ARCore on Android
-      if (isAndroid && (errMsg.includes('not supported') || errMsg.includes('arcore') || errMsg.includes('service'))) {
-        setShowARCoreInstallModal(true);
-      } else {
-        // Fallback to native Scene Viewer
-        if (isAndroid && publicGlbUrl) {
-          handleLaunchNativeAndroid();
-        } else {
-          setShowUnsupportedModal(true);
-        }
-      }
-    }
-  };
-
-  // Primary AR Trigger
+  // Primary In-Website WebXR AR Trigger
   const handleMainARClick = async () => {
     if (!normalizedGlbUrl && !publicGlbUrl) {
       alert('Product 3D model is not available for AR inspection.');
@@ -160,64 +127,228 @@ export function ARLaunchButton({
     setIsLaunching(true);
 
     try {
-      // 1. Run Complete ARCore Preflight Check
-      const preflight = await runARCorePreflight();
-      setPreflightState(preflight);
+      // -----------------------------------------------------------------------
+      // DIAGNOSIS 1: Secure Context Check (HTTPS or localhost)
+      // -----------------------------------------------------------------------
+      // The W3C WebXR Device API is STRICTLY marked [SecureContext].
+      // When accessed over HTTP on a local network IP (e.g. http://192.168.x.x:3000),
+      // Google Chrome on Android completely removes navigator.xr from the global scope!
+      const isSecureContext =
+        typeof window !== 'undefined' &&
+        (window.isSecureContext === true ||
+          window.location.hostname === 'localhost' ||
+          window.location.hostname === '127.0.0.1');
 
-      // 2. Camera Permission Validation
-      const cameraStatus: CameraPermissionState = await checkCameraPermission();
-      if (cameraStatus === 'denied') {
-        setShowCameraPermissionModal(true);
-        setIsLaunching(false);
+      if (!isSecureContext) {
+        setDiagnosis({
+          reason: 'insecure_context',
+          title: 'HTTPS Secure Context Required',
+          message:
+            'Google Chrome for Android strictly blocks the WebXR camera API on non-secure origins (plain HTTP over local Wi-Fi IP).',
+          explanation:
+            'To protect device privacy, WebXR camera hardware access requires an encrypted HTTPS connection or localhost.',
+          canSceneViewer: isAndroid && Boolean(publicGlbUrl),
+          canQuickLook: isIOS && Boolean(publicUsdzUrl),
+          canNativeApp: isAndroid,
+          canPlayStore: false,
+          canCopyHttpsLink: true,
+        });
         return;
       }
 
-      // 3. Android WebXR Check (Google Play Services for AR)
-      if (preflight.isAndroid) {
-        if (preflight.hasImmersiveAR) {
-          // Google Play Services for AR is installed and WebXR is ready!
-          await startGenuineWebXRSession();
-          setIsLaunching(false);
-          return;
+      // -----------------------------------------------------------------------
+      // DIAGNOSIS 2: Platform & Browser WebXR Support Check
+      // -----------------------------------------------------------------------
+      if (typeof navigator === 'undefined' || !navigator.xr) {
+        if (isIOS) {
+          setDiagnosis({
+            reason: 'ios_safari',
+            title: 'WebXR Not Supported on iOS Safari',
+            message:
+              'Apple Safari on iOS does not support the W3C WebXR Device API required for in-browser world tracking.',
+            explanation:
+              'Apple restricts in-browser camera AR in mobile Safari. You can view this model at 1:1 scale using Apple ARKit Quick Look below.',
+            canSceneViewer: false,
+            canQuickLook: Boolean(publicUsdzUrl),
+            canNativeApp: false,
+            canPlayStore: false,
+            canCopyHttpsLink: false,
+          });
+        } else if (isAndroid) {
+          setDiagnosis({
+            reason: 'browser_unsupported',
+            title: 'Google Chrome Required for WebXR',
+            message:
+              'Your current browser does not have the WebXR Device API enabled.',
+            explanation:
+              'Please open this page in the official Google Chrome browser on your Android device to run in-website camera AR.',
+            canSceneViewer: Boolean(publicGlbUrl),
+            canQuickLook: false,
+            canNativeApp: true,
+            canPlayStore: true,
+            canCopyHttpsLink: false,
+          });
+        } else {
+          setDiagnosis({
+            reason: 'desktop',
+            title: 'Augmented Reality Requires Mobile Device',
+            message:
+              'WebXR Augmented Reality requires a smartphone with a camera and spatial tracking sensors (Google ARCore or Apple ARKit).',
+            explanation:
+              'Please open this website on your Android phone using Google Chrome to inspect this door/window at 1:1 scale in your room.',
+            canSceneViewer: false,
+            canQuickLook: false,
+            canNativeApp: false,
+            canPlayStore: false,
+            canCopyHttpsLink: true,
+          });
         }
-
-        // If immersive-ar is not ready, Google Play Services for AR needs installation/update
-        setShowARCoreInstallModal(true);
-        setIsLaunching(false);
         return;
       }
 
-      // 4. iOS Validation (Apple ARKit Quick Look)
-      if (preflight.isIOS) {
-        if (publicUsdzUrl) {
-          handleLaunchNativeIOS();
-          setIsLaunching(false);
-          return;
+      // -----------------------------------------------------------------------
+      // DIAGNOSIS 3: Hardware ARCore & 'immersive-ar' Session Support
+      // -----------------------------------------------------------------------
+      const isImmersiveARSupported = await navigator.xr
+        .isSessionSupported('immersive-ar')
+        .catch(() => false);
+
+      if (!isImmersiveARSupported) {
+        if (isAndroid) {
+          setDiagnosis({
+            reason: 'arcore_not_installed',
+            title: 'Google Play Services for AR Required',
+            message:
+              'Your Android device supports WebXR, but Google Play Services for AR must be installed or updated to detect real-world walls.',
+            explanation:
+              'Install or update Google Play Services for AR from the Google Play Store, or view the product using Google Scene Viewer.',
+            canSceneViewer: Boolean(publicGlbUrl),
+            canQuickLook: false,
+            canNativeApp: true,
+            canPlayStore: true,
+            canCopyHttpsLink: false,
+          });
+        } else if (isIOS) {
+          setDiagnosis({
+            reason: 'ios_safari',
+            title: 'WebXR Not Supported on iOS Safari',
+            message:
+              'Apple Safari on iOS does not support in-browser WebXR world tracking.',
+            explanation:
+              'Apple ARKit Quick Look is available below for native 1:1 scale preview on iPhone.',
+            canSceneViewer: false,
+            canQuickLook: Boolean(publicUsdzUrl),
+            canNativeApp: false,
+            canPlayStore: false,
+            canCopyHttpsLink: false,
+          });
+        } else {
+          setDiagnosis({
+            reason: 'desktop',
+            title: 'AR Tracking Unavailable on Desktop',
+            message:
+              'Desktop browsers lack 6DoF spatial odometry sensors.',
+            explanation:
+              'Open this page on an ARCore-compatible Android device running Google Chrome.',
+            canSceneViewer: false,
+            canQuickLook: false,
+            canNativeApp: false,
+            canPlayStore: false,
+            canCopyHttpsLink: true,
+          });
         }
-        setShowUnsupportedModal(true);
-        setIsLaunching(false);
         return;
       }
 
-      // 5. Desktop / Unsupported Device
-      setShowUnsupportedModal(true);
+      // -----------------------------------------------------------------------
+      // STEP 4: Start WebXR Immersive-AR Session Directly
+      // -----------------------------------------------------------------------
+      // CRITICAL: Only require 'hit-test'! Do NOT require 'local-floor', as some
+      // devices only provide 'local' space initially. We request 'local-floor'
+      // dynamically in RealWorldARExperience with fallback to 'local'.
+      let session: XRSession;
+      try {
+        session = await navigator.xr.requestSession('immersive-ar', {
+          requiredFeatures: ['hit-test'],
+          optionalFeatures: ['local-floor', 'dom-overlay', 'anchors', 'plane-detection'],
+          domOverlay: overlayContainerRef.current
+            ? { root: overlayContainerRef.current }
+            : undefined,
+        });
+      } catch (domOverlayErr) {
+        console.warn('requestSession with dom-overlay failed, retrying basic:', domOverlayErr);
+        session = await navigator.xr.requestSession('immersive-ar', {
+          requiredFeatures: ['hit-test'],
+          optionalFeatures: ['anchors'],
+        });
+      }
+
+      // Session started directly inside website!
+      setActiveXRSession(session);
+      setDiagnosis(null);
     } catch (err: unknown) {
-      console.error('AR Preflight error:', err);
-      if (isAndroid && publicGlbUrl) {
-        handleLaunchNativeAndroid();
-      } else if (isIOS && publicUsdzUrl) {
-        handleLaunchNativeIOS();
+      console.error('WebXR requestSession exception:', err);
+      const msg = err instanceof Error ? err.message.toLowerCase() : '';
+
+      if (msg.includes('user denied') || msg.includes('permission')) {
+        setDiagnosis({
+          reason: 'permission_denied',
+          title: 'Camera Permission Denied',
+          message:
+            'Camera access was denied by your browser settings.',
+          explanation:
+            'To enable in-browser AR, tap the tune/lock icon next to the address bar in Chrome, tap Permissions → Camera, and choose Allow.',
+          canSceneViewer: isAndroid && Boolean(publicGlbUrl),
+          canQuickLook: false,
+          canNativeApp: isAndroid,
+          canPlayStore: false,
+          canCopyHttpsLink: false,
+        });
+      } else if (msg.includes('not supported') || msg.includes('arcore') || msg.includes('service')) {
+        setDiagnosis({
+          reason: 'arcore_not_installed',
+          title: 'Google Play Services for AR Required',
+          message:
+            'Google Play Services for AR is required to track physical surfaces on Android.',
+          explanation:
+            'Please install or update Google Play Services for AR from the Google Play Store.',
+          canSceneViewer: isAndroid && Boolean(publicGlbUrl),
+          canQuickLook: false,
+          canNativeApp: isAndroid,
+          canPlayStore: true,
+          canCopyHttpsLink: false,
+        });
       } else {
-        setShowUnsupportedModal(true);
+        setDiagnosis({
+          reason: 'general_error',
+          title: 'Unable to Start WebXR AR Session',
+          message: err instanceof Error ? err.message : 'Unknown WebXR initialization error.',
+          explanation:
+            'Ensure your device is running the latest Google Chrome and Google Play Services for AR.',
+          canSceneViewer: isAndroid && Boolean(publicGlbUrl),
+          canQuickLook: isIOS && Boolean(publicUsdzUrl),
+          canNativeApp: isAndroid,
+          canPlayStore: isAndroid,
+          canCopyHttpsLink: false,
+        });
       }
     } finally {
       setIsLaunching(false);
     }
   };
 
+  const handleCopyLink = () => {
+    if (typeof window !== 'undefined') {
+      const publicUrl = `https://smc-frontend-cbou.onrender.com/products/${productId || ''}`;
+      navigator.clipboard.writeText(publicUrl);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2500);
+    }
+  };
+
   return (
     <>
-      <div className="space-y-3">
+      <div className="space-y-3" data-product-id={productId}>
         {/* Placement Selector (Wall vs Floor) */}
         <div className="flex items-center justify-between border border-border p-2 bg-muted/20 text-xs">
           <span className="text-secondary font-medium">AR Surface Anchor:</span>
@@ -253,230 +384,146 @@ export function ARLaunchButton({
           size="lg"
           onClick={handleMainARClick}
           disabled={isLaunching}
+          aria-label={`View ${title} in Augmented Reality`}
           className={`w-full tracking-wider uppercase text-xs font-semibold flex items-center justify-center space-x-2 h-12 shadow-sm ${className}`}
           {...props}
         >
           <span>📱</span>
-          <span>{isLaunching ? 'Validating AR System...' : 'View in Augmented Reality (AR)'}</span>
+          <span>{isLaunching ? 'Connecting WebXR Camera...' : 'View in Augmented Reality (AR)'}</span>
         </Button>
       </div>
 
-      {/* Hidden DOM Overlay Root for WebXR Session */}
-      <div ref={overlayContainerRef} id="webxr-dom-overlay-root" />
+      {/* WebXR DOM Overlay Root: mounts the AR experience and close button over live camera */}
+      <div ref={overlayContainerRef} id="webxr-dom-overlay-root">
+        {activeXRSession && (
+          <RealWorldARExperience
+            session={activeXRSession}
+            glbUrl={normalizedGlbUrl}
+            placementMode={placementMode}
+            onClose={() => setActiveXRSession(null)}
+          />
+        )}
+      </div>
 
-      {/* ACTIVE GENUINE WEBXR 6DOF AR SESSION */}
-      {activeXRSession && (
-        <RealWorldARExperience
-          session={activeXRSession}
-          glbUrl={normalizedGlbUrl}
-          placementMode={placementMode}
-          onClose={() => setActiveXRSession(null)}
-        />
-      )}
-
-      {/* 1. GOOGLE PLAY SERVICES FOR AR (ARCORE) INSTALLATION & UPDATE MODAL */}
-      {showARCoreInstallModal && (
+      {/* Honest Compatibility & Fallback Dialog (Shown ONLY outside session when WebXR cannot start) */}
+      {diagnosis && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 backdrop-blur-sm p-4">
-          <div className="w-full max-w-md bg-white border border-border p-6 shadow-2xl space-y-5 text-left">
+          <div className="w-full max-w-md bg-white border border-border p-6 shadow-2xl space-y-4 text-left">
             <div className="flex items-center justify-between border-b border-border pb-3">
               <div className="flex items-center space-x-2">
-                <Smartphone className="w-5 h-5 text-[#C5A572]" />
+                {diagnosis.reason === 'insecure_context' ? (
+                  <ShieldAlert className="w-5 h-5 text-amber-600" />
+                ) : (
+                  <Smartphone className="w-5 h-5 text-primary" />
+                )}
                 <h3 className="text-sm font-semibold text-foreground uppercase tracking-wider">
-                  Google Play Services for AR
+                  {diagnosis.title}
                 </h3>
               </div>
               <button
                 type="button"
-                onClick={() => setShowARCoreInstallModal(false)}
+                onClick={() => setDiagnosis(null)}
                 className="text-secondary hover:text-foreground p-1"
+                aria-label="Close"
               >
                 <X className="w-4 h-4" />
               </button>
             </div>
 
             <div className="space-y-3 text-xs text-secondary leading-relaxed">
-              <div className="flex items-start space-x-2.5 p-3 bg-[#FAF7F2] border border-[#C5A572]/40 text-[#202020]">
-                <ShieldCheck className="w-4 h-4 text-[#C5A572] flex-shrink-0 mt-0.5" />
-                <p>
-                  {preflightState?.statusMessage ||
-                    'To detect real-world walls and anchor the door at 1:1 physical scale, your Android device requires Google Play Services for AR.'}
-                </p>
+              <div className="flex items-start space-x-2.5 p-3 bg-muted/20 border border-border text-foreground">
+                <AlertCircle className="w-4 h-4 text-[#C5A572] flex-shrink-0 mt-0.5" />
+                <p className="font-medium">{diagnosis.message}</p>
               </div>
 
-              <div className="space-y-2 border border-border p-3 bg-muted/10">
-                <span className="font-semibold text-foreground block">Setup Instructions:</span>
-                <p>1. Tap the button below to open Google Play Store.</p>
-                <p>2. Install or update <strong>Google Play Services for AR</strong>.</p>
-                <p>3. Return here and tap <strong>Resume AR Session</strong>.</p>
-              </div>
-            </div>
+              <p className="text-[11px] leading-normal">{diagnosis.explanation}</p>
 
-            <div className="space-y-2 pt-1">
-              <Button
-                variant="gold"
-                size="sm"
-                onClick={openGooglePlayServicesForARStore}
-                className="w-full text-xs uppercase tracking-wider flex items-center justify-center space-x-1.5 h-11"
-              >
-                <Download className="w-4 h-4" />
-                <span>Install from Google Play Store</span>
-              </Button>
-
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={handleMainARClick}
-                className="w-full text-xs uppercase tracking-wider flex items-center justify-center space-x-1.5 h-10 border-border"
-              >
-                <RefreshCw className="w-3.5 h-3.5" />
-                <span>Resume AR Session</span>
-              </Button>
-
-              {publicGlbUrl && (
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={handleLaunchNativeAndroid}
-                  className="w-full text-[11px] text-secondary hover:text-foreground flex items-center justify-center space-x-1"
-                >
-                  <span>Or try Google Scene Viewer directly</span>
-                  <ExternalLink className="w-3 h-3" />
-                </Button>
+              {/* Insecure Context Special Instructions */}
+              {diagnosis.reason === 'insecure_context' && (
+                <div className="p-3 bg-amber-50 border border-amber-200 text-amber-900 space-y-1.5 text-[11px]">
+                  <span className="font-semibold block">How to run in-browser WebXR on your phone:</span>
+                  <p>1. Open the secure HTTPS site: <strong>https://smc-frontend-cbou.onrender.com</strong></p>
+                  <p>2. Or for local development via USB: run <code>adb reverse tcp:3000 tcp:3000</code> and open <code>http://localhost:3000</code> on your phone.</p>
+                </div>
               )}
             </div>
-          </div>
-        </div>
-      )}
 
-      {/* 2. CAMERA PERMISSION BLOCKED MODAL */}
-      {showCameraPermissionModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 backdrop-blur-sm p-4">
-          <div className="w-full max-w-md bg-white border border-border p-6 shadow-2xl space-y-5 text-left">
-            <div className="flex items-center justify-between border-b border-border pb-3">
-              <div className="flex items-center space-x-2">
-                <Camera className="w-5 h-5 text-red-600" />
-                <h3 className="text-sm font-semibold text-foreground uppercase tracking-wider">
-                  Camera Access Required
-                </h3>
-              </div>
-              <button
-                type="button"
-                onClick={() => setShowCameraPermissionModal(false)}
-                className="text-secondary hover:text-foreground p-1"
-              >
-                <X className="w-4 h-4" />
-              </button>
-            </div>
-
-            <div className="space-y-3 text-xs text-secondary leading-relaxed">
-              <div className="flex items-start space-x-2.5 p-3 bg-red-50 border border-red-200 text-red-800">
-                <AlertCircle className="w-4 h-4 text-red-600 flex-shrink-0 mt-0.5" />
-                <p>
-                  Camera access was blocked by your browser settings. Augmented Reality requires camera feed access to track your physical room.
-                </p>
-              </div>
-
-              <div className="space-y-2 border border-border p-3 bg-muted/10">
-                <span className="font-semibold text-foreground block">How to enable camera access:</span>
-                <p>1. Tap the <strong>tune / lock icon</strong> on the left of your browser address bar.</p>
-                <p>2. Select <strong>Permissions</strong> → <strong>Camera</strong>.</p>
-                <p>3. Choose <strong>Allow</strong>.</p>
-                <p>4. Return to this page and tap <strong>Try Again</strong>.</p>
-              </div>
-            </div>
-
-            <div className="space-y-2 pt-1">
-              <Button
-                variant="gold"
-                size="sm"
-                onClick={handleMainARClick}
-                className="w-full text-xs uppercase tracking-wider flex items-center justify-center space-x-1.5 h-11"
-              >
-                <RefreshCw className="w-3.5 h-3.5" />
-                <span>Try Again</span>
-              </Button>
-
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => setShowCameraPermissionModal(false)}
-                className="w-full text-xs"
-              >
-                Close
-              </Button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* 3. UNSUPPORTED DEVICE / PLATFORM ARCHITECTURE MODAL */}
-      {showUnsupportedModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 backdrop-blur-sm p-4">
-          <div className="w-full max-w-md bg-white border border-border p-6 shadow-2xl space-y-5 text-left">
-            <div className="flex items-center justify-between border-b border-border pb-3">
-              <div className="flex items-center space-x-2">
-                <Smartphone className="w-4 h-4 text-primary" />
-                <h3 className="text-sm font-semibold text-foreground uppercase tracking-wider">
-                  AR Device Compatibility
-                </h3>
-              </div>
-              <button
-                type="button"
-                onClick={() => setShowUnsupportedModal(false)}
-                className="text-secondary hover:text-foreground p-1"
-              >
-                <X className="w-4 h-4" />
-              </button>
-            </div>
-
-            <div className="space-y-3 text-xs text-secondary leading-relaxed">
-              <p>
-                Real-world Augmented Reality requires dedicated spatial tracking sensors and hardware-level Visual-Inertial Odometry (VIO).
-              </p>
-              <div className="border border-border p-3 bg-muted/20 space-y-1.5">
-                <span className="font-semibold text-foreground block">Device Status:</span>
-                <p>
-                  • <strong>Android:</strong> Supported via Google Chrome with Google Play Services for AR.
-                </p>
-                <p>
-                  • <strong>iOS (iPhone):</strong> Apple blocks browser WebXR in Safari. Apple ARKit Quick Look is available below.
-                </p>
-                <p>
-                  • <strong>Desktop:</strong> Standard computers lack AR hardware sensors. Please open this link on an ARCore-compatible phone.
-                </p>
-              </div>
-            </div>
-
-            <div className="space-y-2 pt-1">
-              {isIOS && publicUsdzUrl && (
+            {/* Clear, Honest Fallback Options */}
+            <div className="space-y-2 pt-2 border-t border-border">
+              {/* Fallback A: Google Scene Viewer (Built into Android, no APK install) */}
+              {diagnosis.canSceneViewer && (
                 <Button
                   variant="gold"
                   size="sm"
-                  onClick={handleLaunchNativeIOS}
+                  onClick={handleLaunchGoogleSceneViewer}
                   className="w-full text-xs uppercase tracking-wider flex items-center justify-center space-x-1.5 h-11"
                 >
-                  <span>Launch Apple ARKit Quick Look</span>
-                  <ExternalLink className="w-3.5 h-3.5" />
+                  <Sparkles className="w-3.5 h-3.5" />
+                  <span>Launch Google Scene Viewer (Native AR)</span>
+                  <ExternalLink className="w-3 h-3 ml-1" />
                 </Button>
               )}
 
-              {isAndroid && publicGlbUrl && (
+              {/* Fallback B: Apple Quick Look (Native iOS ARKit) */}
+              {diagnosis.canQuickLook && (
                 <Button
                   variant="gold"
                   size="sm"
-                  onClick={handleLaunchNativeAndroid}
+                  onClick={handleLaunchAppleQuickLook}
                   className="w-full text-xs uppercase tracking-wider flex items-center justify-center space-x-1.5 h-11"
                 >
-                  <span>Launch Google ARCore Scene Viewer</span>
-                  <ExternalLink className="w-3.5 h-3.5" />
+                  <Sparkles className="w-3.5 h-3.5" />
+                  <span>View in Apple Quick Look (ARKit)</span>
+                  <ExternalLink className="w-3 h-3 ml-1" />
+                </Button>
+              )}
+
+              {/* Fallback C: Google Play Services for AR Install/Update */}
+              {diagnosis.canPlayStore && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={openGooglePlayServicesForARStore}
+                  className="w-full text-xs uppercase tracking-wider flex items-center justify-center space-x-1.5 h-10 border-border"
+                >
+                  <span>Install Google Play Services for AR</span>
+                  <ExternalLink className="w-3 h-3 ml-1" />
+                </Button>
+              )}
+
+              {/* Fallback D: SMC Native ARCore APK */}
+              {diagnosis.canNativeApp && (
+                <Button
+                  asChild
+                  variant="outline"
+                  size="sm"
+                  className="w-full text-xs uppercase tracking-wider flex items-center justify-center space-x-1.5 h-10 border-border"
+                >
+                  <a href="/downloads/smc-door-window-ar.apk" download="smc-door-window-ar.apk">
+                    <Download className="w-3.5 h-3.5" />
+                    <span>Download Native SMC AR App (.apk)</span>
+                  </a>
+                </Button>
+              )}
+
+              {/* Fallback E: Copy Secure HTTPS Link */}
+              {diagnosis.canCopyHttpsLink && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={handleCopyLink}
+                  className="w-full text-xs uppercase tracking-wider flex items-center justify-center space-x-1.5 h-10 border-border"
+                >
+                  {copied ? <Check className="w-3.5 h-3.5 text-green-600" /> : <Copy className="w-3.5 h-3.5" />}
+                  <span>{copied ? 'Copied HTTPS Link!' : 'Copy Production HTTPS Link'}</span>
                 </Button>
               )}
 
               <Button
-                variant="outline"
+                variant="ghost"
                 size="sm"
-                onClick={() => setShowUnsupportedModal(false)}
-                className="w-full text-xs"
+                onClick={() => setDiagnosis(null)}
+                className="w-full text-xs h-9 text-secondary"
               >
                 Close
               </Button>

@@ -50,6 +50,14 @@ export const authService = {
     return (await apiClient.get('/auth/me')) as unknown as ApiResponse<UserProfile>;
   },
 
+  createHandoffToken: async (
+    productId: string
+  ): Promise<ApiResponse<{ productId: string; handoffToken: string; deepLink: string; universalLink: string; expiresInSeconds: number }>> => {
+    return (await apiClient.post('/auth/handoff-token', {
+      productId,
+    })) as unknown as ApiResponse<{ productId: string; handoffToken: string; deepLink: string; universalLink: string; expiresInSeconds: number }>;
+  },
+
   saveSession: (data: AuthResponseData): void => {
     if (typeof window !== 'undefined') {
       localStorage.setItem('smc_auth_token', data.token);
