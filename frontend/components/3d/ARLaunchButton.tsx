@@ -3,14 +3,12 @@
 import React, { useState, useMemo, useRef, useCallback } from 'react';
 import { normalizeModelUrl, getPublicModelUrl } from '@/lib/api-url';
 import { buildSceneViewerUrl, buildQuickLookUrl } from '@/utils/3d-helpers';
-import { openGooglePlayServicesForARStore } from '@/utils/arcore-checker';
 import { Button, ButtonProps } from '@/components/ui/button';
 import { RealWorldARExperience } from './RealWorldARExperience';
 import {
   X,
   Smartphone,
   AlertCircle,
-  ExternalLink,
   ShieldAlert,
   Sparkles,
   Download,
@@ -85,7 +83,51 @@ export function ARLaunchButton({
     return /android/i.test(navigator.userAgent);
   }, []);
 
-  // Launch Native Google ARCore Scene Viewer (Android system AR fallback)
+  // ---------------------------------------------------------------------------
+  // 1. PRIMARY ACTION: LAUNCH NATIVE ANDROID ARCORE APP DIRECTLY
+  // ---------------------------------------------------------------------------
+  const handleLaunchNativeAndroidApp = useCallback(async () => {
+    if (!productId) {
+      alert('Product ID is missing.');
+      return;
+    }
+
+    setIsLaunching(true);
+    try {
+      // 1. Request short-lived, single-use handoff token from backend
+      let handoffToken = '';
+      try {
+        const tokenRes = await fetch('/api/v1/auth/handoff-token', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ productId }),
+        });
+        if (tokenRes.ok) {
+          const json = await tokenRes.json();
+          handoffToken = json.data?.handoffToken || '';
+        }
+      } catch (e) {
+        console.warn('Could not generate handoff token, proceeding with public ID:', e);
+      }
+
+      // 2. Build verified Android Intent URI
+      // If SMC Native AR is installed -> Android switches to com.smc.doorwindowar.ArActivity!
+      // If NOT installed -> Android redirects to download the APK.
+      const currentOrigin = typeof window !== 'undefined' ? window.location.origin : '';
+      const fallbackUrl = encodeURIComponent(`${currentOrigin}/downloads/smc-door-window-ar.apk`);
+      const tokenParam = handoffToken ? `?token=${encodeURIComponent(handoffToken)}` : '';
+
+      const intentUrl = `intent://product/${productId}${tokenParam}#Intent;scheme=smcar;package=com.smc.doorwindowar;action=android.intent.action.VIEW;S.browser_fallback_url=${fallbackUrl};end;`;
+
+      window.location.href = intentUrl;
+    } finally {
+      setIsLaunching(false);
+    }
+  }, [productId]);
+
+  // ---------------------------------------------------------------------------
+  // 2. LAUNCH GOOGLE SCENE VIEWER (Android system AR without APK)
+  // ---------------------------------------------------------------------------
   const handleLaunchGoogleSceneViewer = useCallback(() => {
     if (!publicGlbUrl) return;
     const intentUrl = buildSceneViewerUrl({
@@ -99,7 +141,9 @@ export function ARLaunchButton({
     window.location.href = intentUrl;
   }, [publicGlbUrl, title, placementMode]);
 
-  // Launch Native Apple ARKit Quick Look for iOS Safari users
+  // ---------------------------------------------------------------------------
+  // 3. LAUNCH APPLE ARKIT QUICK LOOK (iOS Safari native .usdz viewer)
+  // ---------------------------------------------------------------------------
   const handleLaunchAppleQuickLook = useCallback(() => {
     if (!publicUsdzUrl) return;
     const qlUrl = buildQuickLookUrl({
@@ -117,8 +161,10 @@ export function ARLaunchButton({
     document.body.removeChild(a);
   }, [publicUsdzUrl]);
 
-  // Primary In-Website WebXR AR Trigger
-  const handleMainARClick = async () => {
+  // ---------------------------------------------------------------------------
+  // 4. IN-BROWSER WEBXR IMMERSIVE-AR LAUNCHER (Chrome Android)
+  // ---------------------------------------------------------------------------
+  const handleLaunchInBrowserWebXR = async () => {
     if (!normalizedGlbUrl && !publicGlbUrl) {
       alert('Product 3D model is not available for AR inspection.');
       return;
@@ -127,12 +173,6 @@ export function ARLaunchButton({
     setIsLaunching(true);
 
     try {
-      // -----------------------------------------------------------------------
-      // DIAGNOSIS 1: Secure Context Check (HTTPS or localhost)
-      // -----------------------------------------------------------------------
-      // The W3C WebXR Device API is STRICTLY marked [SecureContext].
-      // When accessed over HTTP on a local network IP (e.g. http://192.168.x.x:3000),
-      // Google Chrome on Android completely removes navigator.xr from the global scope!
       const isSecureContext =
         typeof window !== 'undefined' &&
         (window.isSecureContext === true ||
@@ -144,9 +184,9 @@ export function ARLaunchButton({
           reason: 'insecure_context',
           title: 'HTTPS Secure Context Required',
           message:
-            'Google Chrome for Android strictly blocks the WebXR camera API on non-secure origins (plain HTTP over local Wi-Fi IP).',
+            'Google Chrome for Android blocks WebXR camera access on plain HTTP local network IPs.',
           explanation:
-            'To protect device privacy, WebXR camera hardware access requires an encrypted HTTPS connection or localhost.',
+            'WebXR camera access requires an encrypted HTTPS connection or localhost.',
           canSceneViewer: isAndroid && Boolean(publicGlbUrl),
           canQuickLook: isIOS && Boolean(publicUsdzUrl),
           canNativeApp: isAndroid,
@@ -156,46 +196,17 @@ export function ARLaunchButton({
         return;
       }
 
-      // -----------------------------------------------------------------------
-      // DIAGNOSIS 2: Platform & Browser WebXR Support Check
-      // -----------------------------------------------------------------------
       if (typeof navigator === 'undefined' || !navigator.xr) {
         if (isIOS) {
-          setDiagnosis({
-            reason: 'ios_safari',
-            title: 'WebXR Not Supported on iOS Safari',
-            message:
-              'Apple Safari on iOS does not support the W3C WebXR Device API required for in-browser world tracking.',
-            explanation:
-              'Apple restricts in-browser camera AR in mobile Safari. You can view this model at 1:1 scale using Apple ARKit Quick Look below.',
-            canSceneViewer: false,
-            canQuickLook: Boolean(publicUsdzUrl),
-            canNativeApp: false,
-            canPlayStore: false,
-            canCopyHttpsLink: false,
-          });
+          handleLaunchAppleQuickLook();
         } else if (isAndroid) {
-          setDiagnosis({
-            reason: 'browser_unsupported',
-            title: 'Google Chrome Required for WebXR',
-            message:
-              'Your current browser does not have the WebXR Device API enabled.',
-            explanation:
-              'Please open this page in the official Google Chrome browser on your Android device to run in-website camera AR.',
-            canSceneViewer: Boolean(publicGlbUrl),
-            canQuickLook: false,
-            canNativeApp: true,
-            canPlayStore: true,
-            canCopyHttpsLink: false,
-          });
+          handleLaunchNativeAndroidApp();
         } else {
           setDiagnosis({
             reason: 'desktop',
             title: 'Augmented Reality Requires Mobile Device',
-            message:
-              'WebXR Augmented Reality requires a smartphone with a camera and spatial tracking sensors (Google ARCore or Apple ARKit).',
-            explanation:
-              'Please open this website on your Android phone using Google Chrome to inspect this door/window at 1:1 scale in your room.',
+            message: 'WebXR Augmented Reality requires a smartphone with a camera and spatial tracking sensors.',
+            explanation: 'Open this website on your Android phone using Google Chrome or install the SMC Native AR App.',
             canSceneViewer: false,
             canQuickLook: false,
             canNativeApp: false,
@@ -206,71 +217,25 @@ export function ARLaunchButton({
         return;
       }
 
-      // -----------------------------------------------------------------------
-      // DIAGNOSIS 3: Hardware ARCore & 'immersive-ar' Session Support
-      // -----------------------------------------------------------------------
       const isImmersiveARSupported = await navigator.xr
         .isSessionSupported('immersive-ar')
         .catch(() => false);
 
       if (!isImmersiveARSupported) {
         if (isAndroid) {
-          setDiagnosis({
-            reason: 'arcore_not_installed',
-            title: 'Google Play Services for AR Required',
-            message:
-              'Your Android device supports WebXR, but Google Play Services for AR must be installed or updated to detect real-world walls.',
-            explanation:
-              'Install or update Google Play Services for AR from the Google Play Store, or view the product using Google Scene Viewer.',
-            canSceneViewer: Boolean(publicGlbUrl),
-            canQuickLook: false,
-            canNativeApp: true,
-            canPlayStore: true,
-            canCopyHttpsLink: false,
-          });
+          handleLaunchNativeAndroidApp();
         } else if (isIOS) {
-          setDiagnosis({
-            reason: 'ios_safari',
-            title: 'WebXR Not Supported on iOS Safari',
-            message:
-              'Apple Safari on iOS does not support in-browser WebXR world tracking.',
-            explanation:
-              'Apple ARKit Quick Look is available below for native 1:1 scale preview on iPhone.',
-            canSceneViewer: false,
-            canQuickLook: Boolean(publicUsdzUrl),
-            canNativeApp: false,
-            canPlayStore: false,
-            canCopyHttpsLink: false,
-          });
-        } else {
-          setDiagnosis({
-            reason: 'desktop',
-            title: 'AR Tracking Unavailable on Desktop',
-            message:
-              'Desktop browsers lack 6DoF spatial odometry sensors.',
-            explanation:
-              'Open this page on an ARCore-compatible Android device running Google Chrome.',
-            canSceneViewer: false,
-            canQuickLook: false,
-            canNativeApp: false,
-            canPlayStore: false,
-            canCopyHttpsLink: true,
-          });
+          handleLaunchAppleQuickLook();
         }
         return;
       }
 
-      // -----------------------------------------------------------------------
-      // STEP 4: Start WebXR Immersive-AR Session Directly
-      // -----------------------------------------------------------------------
-      // CRITICAL: Only require 'hit-test'! Do NOT require 'local-floor', as some
-      // devices only provide 'local' space initially. We request 'local-floor'
-      // dynamically in RealWorldARExperience with fallback to 'local'.
+      // Start WebXR session with DOM overlay
       let session: XRSession;
       try {
         session = await navigator.xr.requestSession('immersive-ar', {
           requiredFeatures: ['hit-test'],
-          optionalFeatures: ['local-floor', 'dom-overlay', 'anchors', 'plane-detection'],
+          optionalFeatures: ['local-floor', 'dom-overlay', 'anchors'],
           domOverlay: overlayContainerRef.current
             ? { root: overlayContainerRef.current }
             : undefined,
@@ -283,57 +248,26 @@ export function ARLaunchButton({
         });
       }
 
-      // Session started directly inside website!
       setActiveXRSession(session);
       setDiagnosis(null);
     } catch (err: unknown) {
       console.error('WebXR requestSession exception:', err);
-      const msg = err instanceof Error ? err.message.toLowerCase() : '';
-
-      if (msg.includes('user denied') || msg.includes('permission')) {
-        setDiagnosis({
-          reason: 'permission_denied',
-          title: 'Camera Permission Denied',
-          message:
-            'Camera access was denied by your browser settings.',
-          explanation:
-            'To enable in-browser AR, tap the tune/lock icon next to the address bar in Chrome, tap Permissions → Camera, and choose Allow.',
-          canSceneViewer: isAndroid && Boolean(publicGlbUrl),
-          canQuickLook: false,
-          canNativeApp: isAndroid,
-          canPlayStore: false,
-          canCopyHttpsLink: false,
-        });
-      } else if (msg.includes('not supported') || msg.includes('arcore') || msg.includes('service')) {
-        setDiagnosis({
-          reason: 'arcore_not_installed',
-          title: 'Google Play Services for AR Required',
-          message:
-            'Google Play Services for AR is required to track physical surfaces on Android.',
-          explanation:
-            'Please install or update Google Play Services for AR from the Google Play Store.',
-          canSceneViewer: isAndroid && Boolean(publicGlbUrl),
-          canQuickLook: false,
-          canNativeApp: isAndroid,
-          canPlayStore: true,
-          canCopyHttpsLink: false,
-        });
-      } else {
-        setDiagnosis({
-          reason: 'general_error',
-          title: 'Unable to Start WebXR AR Session',
-          message: err instanceof Error ? err.message : 'Unknown WebXR initialization error.',
-          explanation:
-            'Ensure your device is running the latest Google Chrome and Google Play Services for AR.',
-          canSceneViewer: isAndroid && Boolean(publicGlbUrl),
-          canQuickLook: isIOS && Boolean(publicUsdzUrl),
-          canNativeApp: isAndroid,
-          canPlayStore: isAndroid,
-          canCopyHttpsLink: false,
-        });
+      if (isAndroid) {
+        handleLaunchNativeAndroidApp();
       }
     } finally {
       setIsLaunching(false);
+    }
+  };
+
+  // Main Click Handler: Routes to the optimal native platform experience
+  const handleMainARClick = async () => {
+    if (isAndroid) {
+      await handleLaunchNativeAndroidApp();
+    } else if (isIOS) {
+      handleLaunchAppleQuickLook();
+    } else {
+      handleLaunchInBrowserWebXR();
     }
   };
 
@@ -389,12 +323,53 @@ export function ARLaunchButton({
           {...props}
         >
           <span>📱</span>
-          <span>{isLaunching ? 'Connecting WebXR Camera...' : 'View in Augmented Reality (AR)'}</span>
+          <span>
+            {isLaunching
+              ? 'Launching AR...'
+              : isAndroid
+              ? 'Open in SMC Native AR App'
+              : isIOS
+              ? 'View in Apple AR (ARKit)'
+              : 'View in Augmented Reality (AR)'}
+          </span>
         </Button>
+
+        {/* Android Alternative Launch Shortcuts */}
+        {isAndroid && (
+          <div className="flex items-center justify-between text-[11px] text-secondary px-1 pt-0.5">
+            <button
+              type="button"
+              onClick={handleLaunchInBrowserWebXR}
+              className="hover:text-foreground underline underline-offset-2"
+            >
+              In-Browser WebXR
+            </button>
+            <span>•</span>
+            <button
+              type="button"
+              onClick={handleLaunchGoogleSceneViewer}
+              className="hover:text-foreground underline underline-offset-2"
+            >
+              Scene Viewer
+            </button>
+            <span>•</span>
+            <a
+              href="/downloads/smc-door-window-ar.apk"
+              download="smc-door-window-ar.apk"
+              className="hover:text-foreground underline underline-offset-2 flex items-center space-x-0.5"
+            >
+              <span>Download .APK</span>
+            </a>
+          </div>
+        )}
       </div>
 
-      {/* WebXR DOM Overlay Root: mounts the AR experience and close button over live camera */}
-      <div ref={overlayContainerRef} id="webxr-dom-overlay-root">
+      {/* WebXR DOM Overlay Root: mounts the transparent close button over camera */}
+      <div
+        ref={overlayContainerRef}
+        id="webxr-dom-overlay-root"
+        style={{ backgroundColor: 'transparent' }}
+      >
         {activeXRSession && (
           <RealWorldARExperience
             session={activeXRSession}
@@ -405,7 +380,7 @@ export function ARLaunchButton({
         )}
       </div>
 
-      {/* Honest Compatibility & Fallback Dialog (Shown ONLY outside session when WebXR cannot start) */}
+      {/* Compatibility & Fallback Dialog */}
       {diagnosis && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 backdrop-blur-sm p-4">
           <div className="w-full max-w-md bg-white border border-border p-6 shadow-2xl space-y-4 text-left">
@@ -441,57 +416,28 @@ export function ARLaunchButton({
               {/* Insecure Context Special Instructions */}
               {diagnosis.reason === 'insecure_context' && (
                 <div className="p-3 bg-amber-50 border border-amber-200 text-amber-900 space-y-1.5 text-[11px]">
-                  <span className="font-semibold block">How to run in-browser WebXR on your phone:</span>
+                  <span className="font-semibold block">How to run AR on your phone:</span>
                   <p>1. Open the secure HTTPS site: <strong>https://smc-frontend-cbou.onrender.com</strong></p>
-                  <p>2. Or for local development via USB: run <code>adb reverse tcp:3000 tcp:3000</code> and open <code>http://localhost:3000</code> on your phone.</p>
+                  <p>2. Or download and install the Native SMC AR APK below.</p>
                 </div>
               )}
             </div>
 
-            {/* Clear, Honest Fallback Options */}
-            <div className="space-y-2 pt-2 border-t border-border">
-              {/* Fallback A: Google Scene Viewer (Built into Android, no APK install) */}
-              {diagnosis.canSceneViewer && (
+            <div className="pt-2 space-y-2 border-t border-border">
+              {/* Native Android App Intent */}
+              {diagnosis.canNativeApp && (
                 <Button
                   variant="gold"
                   size="sm"
-                  onClick={handleLaunchGoogleSceneViewer}
+                  onClick={handleLaunchNativeAndroidApp}
                   className="w-full text-xs uppercase tracking-wider flex items-center justify-center space-x-1.5 h-11"
                 >
-                  <Sparkles className="w-3.5 h-3.5" />
-                  <span>Launch Google Scene Viewer (Native AR)</span>
-                  <ExternalLink className="w-3 h-3 ml-1" />
+                  <Smartphone className="w-3.5 h-3.5" />
+                  <span>Launch SMC Native Android App</span>
                 </Button>
               )}
 
-              {/* Fallback B: Apple Quick Look (Native iOS ARKit) */}
-              {diagnosis.canQuickLook && (
-                <Button
-                  variant="gold"
-                  size="sm"
-                  onClick={handleLaunchAppleQuickLook}
-                  className="w-full text-xs uppercase tracking-wider flex items-center justify-center space-x-1.5 h-11"
-                >
-                  <Sparkles className="w-3.5 h-3.5" />
-                  <span>View in Apple Quick Look (ARKit)</span>
-                  <ExternalLink className="w-3 h-3 ml-1" />
-                </Button>
-              )}
-
-              {/* Fallback C: Google Play Services for AR Install/Update */}
-              {diagnosis.canPlayStore && (
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={openGooglePlayServicesForARStore}
-                  className="w-full text-xs uppercase tracking-wider flex items-center justify-center space-x-1.5 h-10 border-border"
-                >
-                  <span>Install Google Play Services for AR</span>
-                  <ExternalLink className="w-3 h-3 ml-1" />
-                </Button>
-              )}
-
-              {/* Fallback D: SMC Native ARCore APK */}
+              {/* Download APK */}
               {diagnosis.canNativeApp && (
                 <Button
                   asChild
@@ -506,7 +452,33 @@ export function ARLaunchButton({
                 </Button>
               )}
 
-              {/* Fallback E: Copy Secure HTTPS Link */}
+              {/* Google Scene Viewer */}
+              {diagnosis.canSceneViewer && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={handleLaunchGoogleSceneViewer}
+                  className="w-full text-xs uppercase tracking-wider flex items-center justify-center space-x-1.5 h-10 border-border"
+                >
+                  <Sparkles className="w-3.5 h-3.5" />
+                  <span>Launch Google Scene Viewer</span>
+                </Button>
+              )}
+
+              {/* Apple Quick Look */}
+              {diagnosis.canQuickLook && (
+                <Button
+                  variant="gold"
+                  size="sm"
+                  onClick={handleLaunchAppleQuickLook}
+                  className="w-full text-xs uppercase tracking-wider flex items-center justify-center space-x-1.5 h-11"
+                >
+                  <Sparkles className="w-3.5 h-3.5" />
+                  <span>View in Apple Quick Look (ARKit)</span>
+                </Button>
+              )}
+
+              {/* Copy Link */}
               {diagnosis.canCopyHttpsLink && (
                 <Button
                   variant="outline"

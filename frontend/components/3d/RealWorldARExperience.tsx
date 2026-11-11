@@ -30,7 +30,6 @@ export function RealWorldARExperience({
 }: RealWorldARExperienceProps) {
   // DOM References
   const overlayRef = useRef<HTMLDivElement>(null);
-  const canvasContainerRef = useRef<HTMLDivElement>(null);
 
   // AR Placement State
   const [isPlaced, setIsPlaced] = useState(false);
@@ -62,6 +61,7 @@ export function RealWorldARExperience({
   // =========================================================================
   const initScene = useCallback(() => {
     const scene = new THREE.Scene();
+    scene.background = null; // CRITICAL: null background allows camera pass-through
     sceneRef.current = scene;
 
     // Realistic ambient and directional lighting for physical room blending
@@ -198,27 +198,26 @@ export function RealWorldARExperience({
           // Lock Pitch (X = 0) and Roll (Z = 0) to ensure the door stands 100% upright against the wall
           const yaw = Math.atan2(forward.x, forward.z);
           modelGroup.rotation.set(0, yaw, 0);
-        } else {
-          // Fallback: orient toward camera position projected on horizontal plane
-          const camPos = new THREE.Vector3();
-          camera.getWorldPosition(camPos);
-          const dir = new THREE.Vector3(camPos.x - hitPosition.x, 0, camPos.z - hitPosition.z).normalize();
-          const yaw = Math.atan2(dir.x, dir.z);
-          modelGroup.rotation.set(0, yaw, 0);
-        }
 
-        // Store wall plane in world coordinates for touch dragging
-        const wallNormalForPlane = new THREE.Vector3(0, 0, 1).applyQuaternion(modelGroup.quaternion);
-        currentWallPlaneRef.current = new THREE.Plane().setFromNormalAndCoplanarPoint(
-          wallNormalForPlane,
-          hitPosition
-        );
+          // Configure mathematical plane for subsequent touch drag repositioning
+          currentWallPlaneRef.current = new THREE.Plane().setFromNormalAndCoplanarPoint(
+            forward,
+            hitPosition
+          );
+        } else {
+          modelGroup.rotation.set(0, 0, 0);
+          currentWallPlaneRef.current = new THREE.Plane().setFromNormalAndCoplanarPoint(
+            new THREE.Vector3(0, 0, 1),
+            hitPosition
+          );
+        }
       } else {
-        // Floor Placement: orient door upright, facing towards camera in horizontal plane
+        // Floor placement: face camera horizontally
         const camPos = new THREE.Vector3();
         camera.getWorldPosition(camPos);
-        const lookDir = new THREE.Vector3(camPos.x - hitPosition.x, 0, camPos.z - hitPosition.z).normalize();
-        const yaw = Math.atan2(lookDir.x, lookDir.z);
+        const dx = camPos.x - hitPosition.x;
+        const dz = camPos.z - hitPosition.z;
+        const yaw = Math.atan2(dx, dz);
         modelGroup.rotation.set(0, yaw, 0);
         currentWallPlaneRef.current = new THREE.Plane(new THREE.Vector3(0, 1, 0), -hitPosition.y);
       }
@@ -226,7 +225,7 @@ export function RealWorldARExperience({
       modelGroup.visible = true;
       setIsPlaced(true);
 
-      // Hide placement reticle once successfully placed
+      // Hide placement reticle once anchored
       if (reticleGroupRef.current) {
         reticleGroupRef.current.visible = false;
       }
@@ -302,9 +301,6 @@ export function RealWorldARExperience({
   useEffect(() => {
     if (!session) return;
 
-    const container = canvasContainerRef.current;
-    if (!container) return;
-
     const { scene, camera } = initScene();
 
     // Initialize WebGL Renderer with alpha transparency for camera compositing
@@ -315,9 +311,20 @@ export function RealWorldARExperience({
     });
     renderer.setPixelRatio(window.devicePixelRatio);
     renderer.setSize(window.innerWidth, window.innerHeight);
+    renderer.setClearColor(0x000000, 0); // CRITICAL: 100% transparent clear color for camera pass-through
     renderer.xr.enabled = true;
     rendererRef.current = renderer;
-    container.appendChild(renderer.domElement);
+
+    // Attach canvas to document.body OUTSIDE the domOverlay root.
+    // In W3C WebXR, canvas inside domOverlay blocks camera pass-through!
+    renderer.domElement.style.position = 'fixed';
+    renderer.domElement.style.top = '0';
+    renderer.domElement.style.left = '0';
+    renderer.domElement.style.width = '100vw';
+    renderer.domElement.style.height = '100vh';
+    renderer.domElement.style.pointerEvents = 'none';
+    renderer.domElement.style.zIndex = '0';
+    document.body.appendChild(renderer.domElement);
 
     // Load selected product model
     loadGlbModel(scene);
@@ -361,10 +368,6 @@ export function RealWorldARExperience({
         renderer.setAnimationLoop((_time: number, frame?: XRFrame) => {
           if (isDisposed || !frame) return;
 
-          // In Three.js WebXR, Three.js automatically updates the camera's true 6DoF
-          // position and orientation from ARCore / device VIO.
-          // The model remains permanently locked to its world coordinates in scene.
-
           // Real-World Surface Hit-Testing:
           if (xrHitTestSourceRef.current && xrRefSpaceRef.current) {
             const hitResults = frame.getHitTestResults(xrHitTestSourceRef.current);
@@ -402,8 +405,8 @@ export function RealWorldARExperience({
       if (xrHitTestSourceRef.current) {
         xrHitTestSourceRef.current.cancel();
       }
-      if (renderer.domElement && container.contains(renderer.domElement)) {
-        container.removeChild(renderer.domElement);
+      if (renderer.domElement && document.body.contains(renderer.domElement)) {
+        document.body.removeChild(renderer.domElement);
       }
       renderer.dispose();
       session.end().catch(() => {});
@@ -419,15 +422,13 @@ export function RealWorldARExperience({
   return (
     <div
       ref={overlayRef}
-      className="fixed inset-0 z-50 overflow-hidden select-none touch-none bg-transparent"
+      style={{ backgroundColor: 'transparent' }}
+      className="fixed inset-0 z-50 overflow-hidden select-none touch-none bg-transparent pointer-events-auto"
       onTouchStart={handleTouchStart}
       onTouchMove={handleTouchMove}
       onTouchEnd={handleTouchEnd}
     >
-      {/* 1. WebGL Three.js Canvas Container (Live camera is composited by WebXR hardware layer) */}
-      <div ref={canvasContainerRef} className="absolute inset-0 w-full h-full pointer-events-none" />
-
-      {/* 2. Minimal Discreet Close Button (Top Right) - The ONLY visible UI control in session */}
+      {/* 1. Minimal Discreet Close Button (Top Right) */}
       <button
         type="button"
         onClick={handleExit}
@@ -437,6 +438,13 @@ export function RealWorldARExperience({
       >
         <X className="w-5 h-5" />
       </button>
+
+      {/* 2. Surface Guidance Pill */}
+      {!isPlaced && (
+        <div className="absolute bottom-8 left-1/2 -translate-x-1/2 pointer-events-none px-4 py-2 rounded-full bg-black/60 border border-white/20 text-white/90 text-xs tracking-wider uppercase font-medium shadow-md backdrop-blur-sm">
+          Aim camera at a wall and tap to place
+        </div>
+      )}
     </div>
   );
 }
