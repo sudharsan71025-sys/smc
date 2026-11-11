@@ -1,0 +1,11 @@
+{
+  "applinks": {
+    "apps": [],
+    "details": [
+      {
+        "appID": "TEAMID.com.smc.doorwindowar",
+        "paths": ["/ar/*", "/products/*"]
+      }
+    ]
+  }
+}
