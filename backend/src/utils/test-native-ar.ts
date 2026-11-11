@@ -90,9 +90,10 @@ async function runNativeARTests() {
     // TEST 5: Stream GLB Model Directly from GridFS
     // ----------------------------------------------------
     logger.info('\n--- TEST 5: Stream GLB Binary from MongoDB GridFS ---');
-    const glbStreamRes = await fetch(product.glbUrl.startsWith('http') ? product.glbUrl : `${baseUrl}${product.glbUrl}`);
+    const streamUrl = product.glbUrl.replace(/^https?:\/\/[^/]+/, baseUrl);
+    const glbStreamRes = await fetch(streamUrl);
     if (glbStreamRes.status !== 200) {
-      throw new Error(`Failed to stream GLB from ${product.glbUrl}: ${glbStreamRes.status}`);
+      throw new Error(`Failed to stream GLB from ${streamUrl}: ${glbStreamRes.status}`);
     }
     const glbBuffer = await glbStreamRes.arrayBuffer();
     const glbMagic = new Uint8Array(glbBuffer.slice(0, 4));
@@ -131,3 +132,4 @@ runNativeARTests()
     logger.error('Test run failed', { error: err.message, stack: err.stack });
     process.exit(1);
   });
+

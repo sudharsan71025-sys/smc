@@ -1,20 +1,25 @@
 package com.smc.doorwindowar
 
+import android.Manifest
+import android.content.pm.PackageManager
 import android.os.Bundle
+import android.util.Log
 import android.view.MotionEvent
 import android.view.View
 import android.widget.Toast
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
+import androidx.core.content.ContextCompat
 import androidx.lifecycle.lifecycleScope
 import com.google.ar.core.Anchor
 import com.google.ar.core.Config
 import com.google.ar.core.Session
+import com.google.ar.core.TrackingFailureReason
 import com.smc.doorwindowar.ar.VerticalPlaneHitCalculator
 import com.smc.doorwindowar.data.api.SmcApiService
 import com.smc.doorwindowar.data.model.ProductData
 import com.smc.doorwindowar.databinding.ActivityArBinding
 import dev.romainguy.kotlin.math.Float3
-import io.github.sceneview.ar.ARSceneView
 import io.github.sceneview.ar.node.AnchorNode
 import io.github.sceneview.node.ModelNode
 import kotlinx.coroutines.Dispatchers
@@ -41,14 +46,34 @@ class ArActivity : AppCompatActivity() {
     private var currentModelNode: ModelNode? = null
     private var isPlaced = false
     private var isDragging = false
+    private var hasReceivedFirstFrame = false
+
+    private val cameraPermissionLauncher = registerForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { isGranted ->
+        if (isGranted) {
+            Log.d(TAG, "Camera permission granted inside ArActivity")
+        } else {
+            Log.e(TAG, "Camera permission denied inside ArActivity")
+            Toast.makeText(this, "Camera permission is required for AR", Toast.LENGTH_LONG).show()
+            finish()
+        }
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        Log.d(TAG, "ArActivity onCreate started")
+
         binding = ActivityArBinding.inflate(layoutInflater)
         setContentView(binding.root)
 
         productId = intent.getStringExtra(EXTRA_PRODUCT_ID)
         handoffToken = intent.getStringExtra(EXTRA_HANDOFF_TOKEN)
+
+        // Check runtime camera permission
+        if (ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA) != PackageManager.PERMISSION_GRANTED) {
+            cameraPermissionLauncher.launch(Manifest.permission.CAMERA)
+        }
 
         setupExitButton()
         setupArSceneView()
@@ -63,13 +88,85 @@ class ArActivity : AppCompatActivity() {
 
     private fun setupArSceneView() {
         binding.sceneView.apply {
+            // CRITICAL FIX: Explicitly bind Android lifecycle to ARSceneView so that
+            // SceneView's LifeCycleObserver is registered with the Activity lifecycle.
+            // This triggers arCore.create() on CREATE and arCore.resume() on RESUME,
+            // opening the camera device and piping live frames into the camera texture.
+            lifecycle = this@ArActivity.lifecycle
+
             // Configure ARCore Session with Vertical and Horizontal Plane Finding
             sessionConfiguration = { session: Session, config: Config ->
+                Log.d(TAG, "Configuring ARCore Session...")
                 config.planeFindingMode = Config.PlaneFindingMode.HORIZONTAL_AND_VERTICAL
                 config.focusMode = Config.FocusMode.AUTO
+
                 config.lightEstimationMode = Config.LightEstimationMode.ENVIRONMENTAL_HDR
+
+                // Automatic depth sensing when supported
+                if (session.isDepthModeSupported(Config.DepthMode.AUTOMATIC)) {
+                    config.depthMode = Config.DepthMode.AUTOMATIC
+                }
+
                 config.updateMode = Config.UpdateMode.LATEST_CAMERA_IMAGE
+                Log.d(TAG, "ARCore Session configured successfully: planeMode=${config.planeFindingMode}, lightMode=${config.lightEstimationMode}")
             }
+
+            // Real-Time Session Lifecycle Callbacks
+            onSessionCreated = { session ->
+                Log.i(TAG, "ARCore Session created successfully: $session")
+            }
+
+            onSessionResumed = { session ->
+                Log.i(TAG, "ARCore Session resumed: $session")
+            }
+
+            onSessionPaused = { session ->
+                Log.i(TAG, "ARCore Session paused: $session")
+            }
+
+            onSessionFailed = { exception ->
+                Log.e(TAG, "ARCore Session initialization failed: ${exception.message}", exception)
+                runOnUiThread {
+                    showError("ARCore Session failed: ${exception.localizedMessage}")
+                }
+            }
+
+            // User-friendly tracking feedback
+            onTrackingFailureChanged = { reason: TrackingFailureReason? ->
+                Log.d(TAG, "Tracking failure changed: $reason")
+                runOnUiThread {
+                    if (reason != null && !isPlaced) {
+                        binding.tvGuidance.visibility = View.VISIBLE
+                        binding.tvGuidance.text = when (reason) {
+                            TrackingFailureReason.INSUFFICIENT_LIGHT -> "Too dark: move to a well-lit area"
+                            TrackingFailureReason.EXCESSIVE_MOTION -> "Moving too fast: slow down"
+                            TrackingFailureReason.INSUFFICIENT_FEATURES -> "Aim at a textured surface or wall"
+                            TrackingFailureReason.BAD_STATE -> "AR tracking reset, point at a surface"
+                            else -> getString(R.string.scan_surface_hint)
+                        }
+                    } else if (!isPlaced) {
+                        binding.tvGuidance.visibility = View.VISIBLE
+                        binding.tvGuidance.text = getString(R.string.scan_surface_hint)
+                    }
+                }
+            }
+
+            // Track first successful live camera frame delivery
+            onSessionUpdated = { _, frame ->
+                if (!hasReceivedFirstFrame) {
+                    hasReceivedFirstFrame = true
+                    Log.i(TAG, "First live camera AR frame rendered! Camera feed active.")
+                    runOnUiThread {
+                        if (currentModelNode != null) {
+                            binding.progressBar.visibility = View.GONE
+                        }
+                    }
+                }
+            }
+
+            // Enable surface dot grid for detected physical planes
+            planeRenderer.isEnabled = true
+            planeRenderer.isVisible = true
 
             // Real-World Tap to Place & Touch Drag Repositioning
             setOnTouchListener { _, motionEvent ->
@@ -84,7 +181,6 @@ class ArActivity : AppCompatActivity() {
 
         when (motionEvent.action) {
             MotionEvent.ACTION_DOWN -> {
-                // If already placed, check if touching near the door to begin drag
                 if (isPlaced) {
                     val hitResults = frame.hitTest(motionEvent)
                     val bestHit = VerticalPlaneHitCalculator.findBestWallHit(hitResults)
@@ -92,7 +188,6 @@ class ArActivity : AppCompatActivity() {
                         isDragging = true
                     }
                 } else {
-                    // Tap to place door at real physical wall position
                     val hitResults = frame.hitTest(motionEvent)
                     val wallHit = VerticalPlaneHitCalculator.findBestWallHit(hitResults)
                     if (wallHit != null) {
@@ -104,7 +199,6 @@ class ArActivity : AppCompatActivity() {
             }
 
             MotionEvent.ACTION_MOVE -> {
-                // Drag model along the physical wall
                 if (isDragging && isPlaced) {
                     val hitResults = frame.hitTest(motionEvent)
                     val wallHit = VerticalPlaneHitCalculator.findBestWallHit(hitResults)
@@ -184,7 +278,7 @@ class ArActivity : AppCompatActivity() {
 
         lifecycleScope.launch {
             try {
-                // 1. Fetch product details from backend API
+                Log.d(TAG, "Fetching product details for ID: $id")
                 val response = withContext(Dispatchers.IO) {
                     apiService.getProductById(id)
                 }
@@ -193,19 +287,25 @@ class ArActivity : AppCompatActivity() {
                     val product = response.body()!!.data!!
                     productData = product
 
-                    // Normalize model URL to public HTTPS Render backend if needed
-                    val glbUrl = if (product.glbUrl.contains("localhost")) {
-                        "https://smc-backend-gt5i.onrender.com/api/v1/files/${product.glbFileId}/${product.displayName}.glb"
-                    } else {
-                        product.glbUrl
+                    // Safe GLB URL normalization: replace localhost/127.0.0.1 with public backend
+                    val rawGlb = product.glbUrl
+                    val glbUrl = when {
+                        rawGlb.startsWith("http://localhost:5000") ->
+                            rawGlb.replace("http://localhost:5000", SmcApiService.DEFAULT_BASE_URL.trimEnd('/'))
+                        rawGlb.startsWith("http://127.0.0.1:5000") ->
+                            rawGlb.replace("http://127.0.0.1:5000", SmcApiService.DEFAULT_BASE_URL.trimEnd('/'))
+                        rawGlb.startsWith("/") ->
+                            "${SmcApiService.DEFAULT_BASE_URL.trimEnd('/')}$rawGlb"
+                        else -> rawGlb
                     }
 
-                    // 2. Load GLB into SceneView ModelNode
+                    Log.d(TAG, "Loading GLB model from: $glbUrl")
                     loadGlbIntoScene(glbUrl)
                 } else {
                     showError("Product not found in SMC catalog.")
                 }
             } catch (e: Exception) {
+                Log.e(TAG, "Network error fetching product", e)
                 showError("Network error: ${e.localizedMessage}")
             }
         }
@@ -225,12 +325,16 @@ class ArActivity : AppCompatActivity() {
                 }
 
                 currentModelNode = modelNode
-                binding.progressBar.visibility = View.GONE
+                Log.d(TAG, "GLB Model parsed and prepared successfully.")
+                if (hasReceivedFirstFrame) {
+                    binding.progressBar.visibility = View.GONE
+                }
                 binding.tvGuidance.text = getString(R.string.scan_surface_hint)
             } else {
                 showError("Failed to parse GLB model data.")
             }
         } catch (e: Exception) {
+            Log.e(TAG, "Failed to render 3D GLB model", e)
             showError("Failed to render 3D GLB model: ${e.localizedMessage}")
         }
     }
@@ -241,12 +345,24 @@ class ArActivity : AppCompatActivity() {
         Toast.makeText(this, message, Toast.LENGTH_LONG).show()
     }
 
+    override fun onResume() {
+        super.onResume()
+        Log.d(TAG, "ArActivity onResume")
+    }
+
+    override fun onPause() {
+        super.onPause()
+        Log.d(TAG, "ArActivity onPause")
+    }
+
     override fun onDestroy() {
         super.onDestroy()
+        Log.d(TAG, "ArActivity onDestroy")
         currentAnchorNode?.destroy()
     }
 
     companion object {
+        private const val TAG = "SMC_ArActivity"
         const val EXTRA_PRODUCT_ID = "extra_product_id"
         const val EXTRA_HANDOFF_TOKEN = "extra_handoff_token"
     }
