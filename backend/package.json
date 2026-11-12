@@ -18,6 +18,7 @@
     "test:3d": "tsx src/utils/test-3d-viewer.ts",
     "test:android-ar": "tsx src/utils/test-android-ar.ts",
     "test:native-ar": "tsx src/utils/test-native-ar.ts",
+    "test:browser-ar": "tsx src/utils/test-webxr-browser-ar.ts",
     "test:ios-ar": "tsx src/utils/test-ios-ar.ts",
     "test:e2e": "tsx src/utils/test-e2e-integration.ts",
     "test:playwright": "tsx src/utils/test-playwright-e2e.ts",

@@ -41,15 +41,15 @@ export default function OpeningPage() {
         <div className="pt-6 sm:pt-8 border-t border-border/60 flex items-center justify-center gap-4 sm:gap-8 text-[11px] text-secondary flex-wrap">
           <div className="flex items-center space-x-1.5">
             <span className="text-primary font-bold">✓</span>
-            <span>Google &lt;model-viewer&gt; 3D</span>
+            <span>Three.js 3D Viewer</span>
           </div>
           <div className="flex items-center space-x-1.5">
             <span className="text-primary font-bold">✓</span>
-            <span>Android Scene Viewer</span>
+            <span>WebXR In-Browser AR</span>
           </div>
           <div className="flex items-center space-x-1.5">
             <span className="text-primary font-bold">✓</span>
-            <span>Apple AR Quick Look</span>
+            <span>1:1 Architectural Scale</span>
           </div>
         </div>
       </div>

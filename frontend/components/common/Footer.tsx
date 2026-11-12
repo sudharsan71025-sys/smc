@@ -10,7 +10,7 @@ export function Footer() {
           <span>Architectural Door & Window Showroom</span>
         </div>
         <div className="text-[11px] text-secondary">
-          <span>WebXR • Android Scene Viewer • Apple ARKit</span>
+          <span>WebXR In-Browser AR • Three.js 3D Engine • 1:1 Architectural Scale</span>
         </div>
       </div>
     </footer>

@@ -67,62 +67,10 @@ async function verifyDatabase() {
     logger.info(` Asset3D model verified. Created ID: ${testAsset._id}`);
 
     const testProduct = await Product.create({
-      title: 'Minimalist Aluminum Sliding Door',
-      slug: `minimalist-aluminum-sliding-door-${Date.now()}`,
-      sku: `DR-ALM-${Date.now().toString().slice(-4)}`,
-      description: 'Thermal-break aluminum sliding door for modern residences',
-      productType: 'door',
-      subType: 'sliding',
-      category: testCategory._id,
-      basePrice: 1850,
-      currency: 'USD',
-      dimensions: {
-        defaultWidth: 2400,
-        defaultHeight: 2100,
-        defaultDepth: 120,
-        unit: 'mm',
-      },
-      customizable: {
-        widthRange: { min: 1800, max: 3600 },
-        heightRange: { min: 2000, max: 2800 },
-        materials: [
-          {
-            name: 'Matte Charcoal Aluminum',
-            code: 'ALU-BLK',
-            hexColor: '#2B2B2B',
-            roughness: 0.35,
-            metalness: 0.85,
-            priceModifier: 0,
-          },
-          {
-            name: 'Champagne Bronze',
-            code: 'ALU-BRZ',
-            hexColor: '#8C7853',
-            roughness: 0.4,
-            metalness: 0.9,
-            priceModifier: 150,
-          },
-        ],
-        hardware: [
-          {
-            name: 'Flush Pull Handle',
-            code: 'HDL-FLUSH-01',
-            finish: 'Matte Black',
-            price: 45,
-          },
-        ],
-      },
-      assets: {
-        primaryGlb: testAsset._id,
-        thumbnailUrl: 'http://localhost:5000/uploads/thumbnails/test-door-thumb.webp',
-        galleryImages: [],
-      },
-      arConfig: {
-        enabled: true,
-        placement: 'wall',
-        scale: 1.0,
-        autoRotate: false,
-      },
+      name: 'Minimalist Aluminum Sliding Door',
+      glbUrl: testAsset.url,
+      glbFileId: testAsset._id,
+      createdBy: new mongoose.Types.ObjectId(),
       status: 'published',
     });
     logger.info(` Product model verified. Created ID: ${testProduct._id}`);

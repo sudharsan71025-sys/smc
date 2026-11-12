@@ -13,14 +13,22 @@ interface RealWorldARExperienceProps {
   onClose: () => void;
 }
 
+// Minimal XRAnchor interface definition
+interface WebXRAnchor {
+  anchorSpace: XRSpace;
+  delete?: () => void;
+}
+
 /**
  * Pure In-Website WebXR 6DoF Real-World Augmented Reality Experience.
  *
- * Renders Three.js directly on top of the native device camera feed.
- * Uses WebXR Hit-Testing to detect physical walls and floors.
- * Anchors the 3D model in scene world space at the exact tapped physical location.
- * When the user rotates or moves the phone, the model remains permanently fixed
- * at that real-world position.
+ * Requirements:
+ * 1. Full-screen live camera (real-world camera pass-through via WebXR WebGL layer).
+ * 2. Minimal close control only.
+ * 3. AR Hit-testing: Detects real-world physical surfaces (prioritizing vertical walls for doors/windows).
+ * 4. World-space Anchoring: Attached to the physical room coordinates.
+ * 5. Touch-based repositioning: Dragging moves the model along the real-world wall plane.
+ * 6. 1:1 Metric Scale: Preserves real physical door/window dimensions.
  */
 export function RealWorldARExperience({
   session,
@@ -28,7 +36,6 @@ export function RealWorldARExperience({
   placementMode = 'wall',
   onClose,
 }: RealWorldARExperienceProps) {
-  // DOM References
   const overlayRef = useRef<HTMLDivElement>(null);
 
   // AR Placement State
@@ -47,13 +54,14 @@ export function RealWorldARExperience({
   const xrRefSpaceRef = useRef<XRReferenceSpace | null>(null);
   const xrHitTestSourceRef = useRef<XRHitTestSource | null>(null);
   const latestHitPoseRef = useRef<XRPose | null>(null);
+  const latestHitResultRef = useRef<XRHitTestResult | null>(null);
+  const activeAnchorRef = useRef<WebXRAnchor | null>(null);
 
   // Touch Drag & Repositioning Refs
   const isDraggingRef = useRef(false);
   const currentWallPlaneRef = useRef<THREE.Plane | null>(null);
   const raycasterRef = useRef<THREE.Raycaster>(new THREE.Raycaster());
 
-  // Normalized GLB URL
   const normalizedGlbUrl = useMemo(() => normalizeModelUrl(glbUrl), [glbUrl]);
 
   // =========================================================================
@@ -76,8 +84,6 @@ export function RealWorldARExperience({
     fillLight.position.set(-2, 2, 2);
     scene.add(fillLight);
 
-    // Perspective Camera: In WebXR, Three.js updates projection matrix and pose
-    // directly from ARCore / device VIO on every frame.
     const camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.01, 50);
     scene.add(camera);
     cameraRef.current = camera;
@@ -87,7 +93,7 @@ export function RealWorldARExperience({
     reticleGroup.visible = false;
     reticleGroup.matrixAutoUpdate = false;
 
-    // Ring geometry indicating detected plane orientation
+    // Outer Ring
     const ringGeo = new THREE.RingGeometry(0.12, 0.15, 32);
     ringGeo.rotateX(-Math.PI / 2);
     const ringMat = new THREE.MeshBasicMaterial({
@@ -99,7 +105,7 @@ export function RealWorldARExperience({
     const ringMesh = new THREE.Mesh(ringGeo, ringMat);
     reticleGroup.add(ringMesh);
 
-    // Center dot for precision aim
+    // Center dot for precision placement
     const dotGeo = new THREE.CircleGeometry(0.02, 16);
     dotGeo.rotateX(-Math.PI / 2);
     const dotMat = new THREE.MeshBasicMaterial({ color: 0xffffff });
@@ -133,7 +139,7 @@ export function RealWorldARExperience({
 
         let scaleFactor = 1.0;
         if (size.y > 500) {
-          scaleFactor = 0.001; // Model was exported in millimeters (CAD / Blender)
+          scaleFactor = 0.001; // Model was exported in millimeters
         } else if (size.y > 30) {
           scaleFactor = 0.01; // Model was exported in centimeters
         } else {
@@ -145,7 +151,7 @@ export function RealWorldARExperience({
 
         // 2. Calibrate Origin / Pivot:
         // - X: centered at 0
-        // - Y: bottom threshold at 0 (door rests on floor threshold)
+        // - Y: bottom threshold at 0 (door rests on floor)
         // - Z: back of door frame flush with wall at Z = 0
         const calibratedBox = new THREE.Box3().setFromObject(rawModel);
         const calibratedCenter = new THREE.Vector3();
@@ -173,7 +179,7 @@ export function RealWorldARExperience({
   // 3. PLACE MODEL AT REAL WORLD-SPACE HIT POSE (100% WORLD ANCHORED)
   // =========================================================================
   const placeModelAtWorldHit = useCallback(
-    (hitPose: XRPose) => {
+    async (hitPose: XRPose, hitResult?: XRHitTestResult | null) => {
       const modelGroup = modelGroupRef.current;
       const camera = cameraRef.current;
       if (!modelGroup || !camera) return;
@@ -199,7 +205,6 @@ export function RealWorldARExperience({
           const yaw = Math.atan2(forward.x, forward.z);
           modelGroup.rotation.set(0, yaw, 0);
 
-          // Configure mathematical plane for subsequent touch drag repositioning
           currentWallPlaneRef.current = new THREE.Plane().setFromNormalAndCoplanarPoint(
             forward,
             hitPosition
@@ -220,6 +225,19 @@ export function RealWorldARExperience({
         const yaw = Math.atan2(dx, dz);
         modelGroup.rotation.set(0, yaw, 0);
         currentWallPlaneRef.current = new THREE.Plane(new THREE.Vector3(0, 1, 0), -hitPosition.y);
+      }
+
+      // Try creating WebXR Anchor where supported
+      if (hitResult && 'createAnchor' in hitResult) {
+        try {
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          const anchor = await (hitResult as any).createAnchor();
+          if (anchor) {
+            activeAnchorRef.current = anchor;
+          }
+        } catch (anchorErr) {
+          console.debug('WebXR anchor creation not supported or failed, using world pose:', anchorErr);
+        }
       }
 
       modelGroup.visible = true;
@@ -247,7 +265,7 @@ export function RealWorldARExperience({
     // If model is not yet placed, tapping places it at current hit pose
     if (!isPlacedRef.current) {
       if (latestHitPoseRef.current) {
-        placeModelAtWorldHit(latestHitPoseRef.current);
+        placeModelAtWorldHit(latestHitPoseRef.current, latestHitResultRef.current);
       }
       return;
     }
@@ -263,8 +281,8 @@ export function RealWorldARExperience({
     if (intersects.length > 0) {
       isDraggingRef.current = true;
     } else if (latestHitPoseRef.current) {
-      // Tap elsewhere repositions the door to the newly hit real location
-      placeModelAtWorldHit(latestHitPoseRef.current);
+      // Tap elsewhere on a surface repositions the door to the newly hit real location
+      placeModelAtWorldHit(latestHitPoseRef.current, latestHitResultRef.current);
     }
   };
 
@@ -352,7 +370,7 @@ export function RealWorldARExperience({
         // 3. Handle WebXR Select (Tap) Event
         const onSelect = () => {
           if (latestHitPoseRef.current) {
-            placeModelAtWorldHit(latestHitPoseRef.current);
+            placeModelAtWorldHit(latestHitPoseRef.current, latestHitResultRef.current);
           }
         };
         session.addEventListener('select', onSelect);
@@ -368,7 +386,7 @@ export function RealWorldARExperience({
         renderer.setAnimationLoop((_time: number, frame?: XRFrame) => {
           if (isDisposed || !frame) return;
 
-          // Real-World Surface Hit-Testing:
+          // Real-World Surface Hit-Testing
           if (xrHitTestSourceRef.current && xrRefSpaceRef.current) {
             const hitResults = frame.getHitTestResults(xrHitTestSourceRef.current);
             if (hitResults.length > 0) {
@@ -376,6 +394,7 @@ export function RealWorldARExperience({
               const hitPose = hit.getPose(xrRefSpaceRef.current);
               if (hitPose) {
                 latestHitPoseRef.current = hitPose;
+                latestHitResultRef.current = hit;
 
                 // Show reticle only before the door is placed
                 if (reticleGroupRef.current) {
@@ -387,6 +406,23 @@ export function RealWorldARExperience({
               if (reticleGroupRef.current) {
                 reticleGroupRef.current.visible = false;
               }
+            }
+          }
+
+          // Update pose from WebXR Anchor if active
+          if (
+            activeAnchorRef.current &&
+            xrRefSpaceRef.current &&
+            modelGroupRef.current &&
+            !isDraggingRef.current
+          ) {
+            const anchorPose = frame.getPose(activeAnchorRef.current.anchorSpace, xrRefSpaceRef.current);
+            if (anchorPose) {
+              modelGroupRef.current.position.set(
+                anchorPose.transform.position.x,
+                anchorPose.transform.position.y,
+                anchorPose.transform.position.z
+              );
             }
           }
 
@@ -428,7 +464,13 @@ export function RealWorldARExperience({
       onTouchMove={handleTouchMove}
       onTouchEnd={handleTouchEnd}
     >
-      {/* 1. Minimal Discreet Close Button (Top Right) */}
+      {/* 
+        Minimal Discreet Close Control Only
+        The AR screen contains:
+        - Full-screen live camera (rendered by WebXR layer underneath)
+        - Minimal close control only
+        (No product selector circles, badges, scanning labels, or bottom buttons)
+      */}
       <button
         type="button"
         onClick={handleExit}
@@ -438,13 +480,6 @@ export function RealWorldARExperience({
       >
         <X className="w-5 h-5" />
       </button>
-
-      {/* 2. Surface Guidance Pill */}
-      {!isPlaced && (
-        <div className="absolute bottom-8 left-1/2 -translate-x-1/2 pointer-events-none px-4 py-2 rounded-full bg-black/60 border border-white/20 text-white/90 text-xs tracking-wider uppercase font-medium shadow-md backdrop-blur-sm">
-          Aim camera at a wall and tap to place
-        </div>
-      )}
     </div>
   );
 }
