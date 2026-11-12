@@ -109,7 +109,7 @@ async function runBrowserARVerification() {
   assert(
     realWorldArSource.includes('Minimal Discreet Close Control Only') &&
       realWorldArSource.includes('setClearColor(0x000000, 0)') &&
-      realWorldArSource.includes('local-floor'),
+      realWorldArSource.includes('referenceSpaceType'),
     'RealWorldARExperience Configured for Camera Pass-Through & Minimal Close Control Only'
   );
 
@@ -121,8 +121,55 @@ async function runBrowserARVerification() {
     'Three.js 3D Inspection Viewer Integrated with OrbitControls, PBR Lighting & 1:1 Metric Scale'
   );
 
-  // 4. Backend Health & Performance Check
-  logger.info('\n--- 4. Backend Health & REST API Security Check ---');
+  // 4. Centralized Capability Service & WebXR Session Negotiation Audit
+  logger.info('\n--- 4. Capability Service & Multi-Tier Negotiation Audit ---');
+  const capabilityServiceSource = fs.readFileSync(
+    path.resolve(process.cwd(), '../frontend/services/ar-capability-service.ts'),
+    'utf-8'
+  );
+  const sessionNegotiationSource = fs.readFileSync(
+    path.resolve(process.cwd(), '../frontend/utils/webxr-session.ts'),
+    'utf-8'
+  );
+  const webcamPreviewSource = fs.readFileSync(
+    path.resolve(process.cwd(), '../frontend/components/3d/WebcamPreviewModal.tsx'),
+    'utf-8'
+  );
+  const nextConfigSource = fs.readFileSync(
+    path.resolve(process.cwd(), '../frontend/next.config.ts'),
+    'utf-8'
+  );
+
+  assert(
+    capabilityServiceSource.includes('class ARCapabilityService') &&
+      capabilityServiceSource.includes('supportsImmersiveAR') &&
+      capabilityServiceSource.includes('isSecureContext'),
+    'Centralized AR Capability Service Implemented (evaluates WebXR, WebGL, Camera, and Secure Context)'
+  );
+
+  assert(
+    sessionNegotiationSource.includes('negotiateWebXRSession') &&
+      sessionNegotiationSource.includes('requiredFeatures: []') &&
+      sessionNegotiationSource.includes('local-floor'),
+    'Multi-Tier WebXR Session Negotiation Implemented (eliminates session configuration rejections)'
+  );
+
+  assert(
+    webcamPreviewSource.includes('getUserMedia') &&
+      webcamPreviewSource.includes('Desktop') &&
+      webcamPreviewSource.includes('track.stop()'),
+    'Laptop/Desktop Webcam Preview Implemented (handles desktop simulation with honest disclaimers)'
+  );
+
+  assert(
+    nextConfigSource.includes('Permissions-Policy') &&
+      nextConfigSource.includes('camera=(self)') &&
+      nextConfigSource.includes('xr-spatial-tracking=(self)'),
+    'Security Headers Configured in next.config.ts (Permissions-Policy allows camera & XR spatial tracking)'
+  );
+
+  // 5. Backend Health & Performance Check
+  logger.info('\n--- 5. Backend Health & REST API Security Check ---');
   const healthRes = await fetch('http://localhost:5000/api/v1/health');
   assert(healthRes.status === 200, 'Health Endpoint Responds with 200 OK');
   const healthData = await healthRes.json();

@@ -4,7 +4,13 @@ import React, { useState, useMemo, useRef, useCallback } from 'react';
 import { normalizeModelUrl } from '@/lib/api-url';
 import { Button, ButtonProps } from '@/components/ui/button';
 import { RealWorldARExperience } from './RealWorldARExperience';
-import { X, Smartphone, AlertCircle, ShieldAlert } from 'lucide-react';
+import { WebcamPreviewModal } from './WebcamPreviewModal';
+import { arCapabilityService } from '@/services/ar-capability-service';
+import {
+  negotiateWebXRSession,
+  NegotiatedWebXRSession,
+} from '@/utils/webxr-session';
+import { X, Smartphone, AlertCircle, ShieldAlert, Camera, Eye } from 'lucide-react';
 
 interface ARLaunchButtonProps extends ButtonProps {
   productId?: string;
@@ -15,25 +21,30 @@ interface ARLaunchButtonProps extends ButtonProps {
   onPlacementModeChange?: (mode: 'wall' | 'floor') => void;
 }
 
-type IncompatibilityReason =
+type NoticeType =
+  | 'desktop_info'
+  | 'ios_limitation'
   | 'insecure_context'
-  | 'ios_safari'
-  | 'browser_unsupported'
-  | 'desktop'
-  | 'session_error';
+  | 'permission_denied'
+  | 'unsupported_ar';
 
 interface CompatibilityNotice {
-  reason: IncompatibilityReason;
+  type: NoticeType;
   title: string;
   message: string;
   guidance: string;
+  allowWebcamPreview?: boolean;
 }
 
 /**
- * Pure In-Website WebXR AR Launch Button
+ * SMC Enterprise In-Browser WebXR AR & Cross-Device Launch Button
  *
- * Implements direct browser AR launching via navigator.xr.requestSession('immersive-ar').
- * No external app launches, no APK downloads, no Scene Viewer or Quick Look redirects.
+ * Implements:
+ * 1. Single primary action: "OPEN IN BROWSER".
+ * 2. Multi-tier WebXR capability negotiation (eliminating session configuration rejections).
+ * 3. Transparent WebGL camera pass-through (eliminating black screens).
+ * 4. Separate desktop capability handling with optional 2D webcam preview.
+ * 5. Strict adherence to W3C WebXR specifications and device security contexts.
  */
 export function ARLaunchButton({
   productId,
@@ -44,8 +55,12 @@ export function ARLaunchButton({
   className,
   ...props
 }: ARLaunchButtonProps) {
-  // Active In-Website WebXR Session
-  const [activeXRSession, setActiveXRSession] = useState<XRSession | null>(null);
+  // Active Negotiated WebXR Session
+  const [activeNegotiatedSession, setActiveNegotiatedSession] =
+    useState<NegotiatedWebXRSession | null>(null);
+
+  // Desktop Webcam Preview Mode State
+  const [isWebcamPreviewOpen, setIsWebcamPreviewOpen] = useState(false);
 
   // Status & Preflight State
   const [isLaunching, setIsLaunching] = useState(false);
@@ -56,19 +71,8 @@ export function ARLaunchButton({
 
   const normalizedGlbUrl = useMemo(() => normalizeModelUrl(glbUrl), [glbUrl]);
 
-  // Platform detection
-  const isIOS = useMemo(() => {
-    if (typeof window === 'undefined') return false;
-    return /iPad|iPhone|iPod/.test(navigator.userAgent) && !('MSStream' in window);
-  }, []);
-
-  const isDesktop = useMemo(() => {
-    if (typeof window === 'undefined') return false;
-    return !/Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent);
-  }, []);
-
   // ---------------------------------------------------------------------------
-  // MAIN ACTION: START WEBXR IMMERSIVE-AR SESSION IN BROWSER
+  // MAIN ACTION: START WEBXR IMMERSIVE-AR SESSION OR CROSS-DEVICE WORKFLOW
   // ---------------------------------------------------------------------------
   const handleLaunchInBrowserAR = useCallback(async () => {
     if (!normalizedGlbUrl) {
@@ -79,120 +83,100 @@ export function ARLaunchButton({
     setIsLaunching(true);
 
     try {
-      // 1. Check HTTPS Secure Context
-      const isSecureContext =
-        typeof window !== 'undefined' &&
-        (window.isSecureContext === true ||
-          window.location.hostname === 'localhost' ||
-          window.location.hostname === '127.0.0.1');
+      // 1. Evaluate live capabilities
+      const caps = await arCapabilityService.evaluate(true);
 
-      if (!isSecureContext) {
+      // 2. Handle Insecure Context
+      if (!caps.isSecureContext) {
         setNotice({
-          reason: 'insecure_context',
+          type: 'insecure_context',
           title: 'HTTPS Secure Context Required',
           message:
-            'Google Chrome blocks WebXR camera access on unencrypted connections.',
+            'Google Chrome blocks WebXR and camera access on unencrypted connections.',
           guidance:
-            'WebXR camera access requires a secure HTTPS connection or localhost. Please access the website using https://.',
+            'WebXR requires HTTPS or localhost. If testing over local Wi-Fi, open chrome://flags on your phone, search for "unsafely-treat-insecure-origin-as-secure", add this IP address, and relaunch Chrome.',
         });
         return;
       }
 
-      // 2. Check Device Type (Desktop vs Mobile)
-      if (isDesktop) {
+      // 3. Handle Desktop / Laptop Environments
+      if (caps.isDesktop) {
         setNotice({
-          reason: 'desktop',
-          title: 'Mobile Device Required',
+          type: 'desktop_info',
+          title: 'Desktop Environment Detected',
           message:
-            'WebXR Augmented Reality requires a smartphone with a camera and spatial motion sensors.',
+            'Full-screen world-anchored AR with physical wall detection requires an ARCore-compatible smartphone with spatial motion sensors.',
           guidance:
-            'Please open this page on an Android smartphone running Google Chrome to view this model in your room.',
+            'You can inspect the 3D model at 1:1 scale using the 3D viewer, or open the camera preview simulation on your laptop webcam below.',
+          allowWebcamPreview: caps.hasCameraHardware,
         });
         return;
       }
 
-      // 3. Check iOS Safari Support
-      if (isIOS) {
+      // 4. Handle iOS Safari Limitation
+      if (caps.isIOS) {
         setNotice({
-          reason: 'ios_safari',
-          title: 'iOS Browser AR Limitation',
+          type: 'ios_limitation',
+          title: 'iOS Browser AR Notice',
           message:
-            'Apple Safari does not support the W3C WebXR Device API required for in-browser real-world camera tracking.',
+            'Apple Safari on iOS does not support the W3C WebXR Device API required for in-browser real-world camera tracking.',
           guidance:
-            'Please explore the architectural door using the interactive 3D viewer above, or use an ARCore-compatible Android device running Google Chrome for in-browser AR.',
+            'Please explore the architectural door using the interactive 3D viewer above, or open this page on an Android phone running Google Chrome for in-browser WebXR AR.',
         });
         return;
       }
 
-      // 4. Check WebXR API Availability
-      if (typeof navigator === 'undefined' || !navigator.xr) {
+      // 5. Handle Missing WebXR or Unsupported immersive-ar on Android
+      if (!caps.supportsImmersiveAR) {
         setNotice({
-          reason: 'browser_unsupported',
-          title: 'Browser WebXR Not Supported',
-          message:
-            'Your current browser does not expose the WebXR Device API required for real-world camera tracking.',
-          guidance:
-            'Please open this page in Google Chrome on an Android device supporting Google Play Services for AR (ARCore).',
-        });
-        return;
-      }
-
-      // 5. Check immersive-ar Session Support
-      const isImmersiveARSupported = await navigator.xr
-        .isSessionSupported('immersive-ar')
-        .catch(() => false);
-
-      if (!isImmersiveARSupported) {
-        setNotice({
-          reason: 'browser_unsupported',
+          type: 'unsupported_ar',
           title: 'Immersive AR Unsupported',
           message:
-            'Your device or browser does not support the WebXR immersive-ar session mode.',
+            'Your current browser or device does not support WebXR immersive-ar session mode.',
           guidance:
-            'Verify that Google Chrome is up to date and that "Google Play Services for AR" is installed and enabled on your Android phone.',
+            'Ensure you are using Google Chrome on an Android phone that has "Google Play Services for AR" (ARCore) installed and updated from the Google Play Store.',
         });
         return;
       }
 
-      // 6. Request WebXR Immersive-AR Session directly from user gesture
-      let session: XRSession;
-      try {
-        session = await navigator.xr.requestSession('immersive-ar', {
-          requiredFeatures: ['hit-test'],
-          optionalFeatures: ['local-floor', 'dom-overlay', 'anchors'],
-          domOverlay: overlayContainerRef.current
-            ? { root: overlayContainerRef.current }
-            : undefined,
-        });
-      } catch (domOverlayErr) {
-        console.warn('requestSession with dom-overlay failed, retrying without dom-overlay:', domOverlayErr);
-        session = await navigator.xr.requestSession('immersive-ar', {
-          requiredFeatures: ['hit-test'],
-          optionalFeatures: ['local-floor', 'anchors'],
-        });
-      }
+      // 6. Safe Multi-Tier Capability Negotiation (Zero "Session Configuration Not Supported" Rejections)
+      const negotiated = await negotiateWebXRSession({
+        domOverlayRoot: overlayContainerRef.current,
+      });
 
-      setActiveXRSession(session);
+      setActiveNegotiatedSession(negotiated);
       setNotice(null);
     } catch (err: unknown) {
-      console.error('WebXR requestSession error:', err);
+      console.error('WebXR session initiation error:', err);
       const errMsg = err instanceof Error ? err.message : 'Unknown WebXR initialization error';
-      setNotice({
-        reason: 'session_error',
-        title: 'Unable to Start AR Session',
-        message: errMsg,
-        guidance:
-          'Ensure camera permissions are granted in Chrome site settings and try again.',
-      });
+
+      if (errMsg.includes('NotAllowedError') || errMsg.includes('Permission')) {
+        setNotice({
+          type: 'permission_denied',
+          title: 'Camera Permission Denied',
+          message:
+            'Chrome blocked camera access for this session. Camera access is required to render your physical room.',
+          guidance:
+            'Tap the lock or site settings icon in your Chrome address bar, set Camera to "Allow", and try again.',
+        });
+      } else {
+        setNotice({
+          type: 'unsupported_ar',
+          title: 'Unable to Start AR Session',
+          message: errMsg,
+          guidance:
+            'Check camera permissions in Chrome settings and verify Google Play Services for AR is active.',
+        });
+      }
     } finally {
       setIsLaunching(false);
     }
-  }, [normalizedGlbUrl, isDesktop, isIOS]);
+  }, [normalizedGlbUrl]);
 
   return (
     <>
       <div className="space-y-3" data-product-id={productId}>
-        {/* Placement Selector (Wall vs Floor) */}
+        {/* Placement Surface Selector (Wall vs Floor) */}
         <div className="flex items-center justify-between border border-border p-2 bg-muted/20 text-xs">
           <span className="text-secondary font-medium">Placement Surface:</span>
           <div className="flex items-center space-x-1">
@@ -236,29 +220,38 @@ export function ARLaunchButton({
         </Button>
       </div>
 
-      {/* WebXR DOM Overlay Root: transparent container mounting minimal close button */}
+      {/* WebXR DOM Overlay Root: mounts transparent minimal close button */}
       <div
         ref={overlayContainerRef}
         id="webxr-dom-overlay-root"
         style={{ backgroundColor: 'transparent' }}
       >
-        {activeXRSession && (
+        {activeNegotiatedSession && (
           <RealWorldARExperience
-            session={activeXRSession}
+            negotiated={activeNegotiatedSession}
             glbUrl={normalizedGlbUrl}
             placementMode={placementMode}
-            onClose={() => setActiveXRSession(null)}
+            onClose={() => setActiveNegotiatedSession(null)}
           />
         )}
       </div>
 
-      {/* Honest Compatibility Dialog */}
+      {/* Desktop Laptop Webcam Simulation Modal */}
+      {isWebcamPreviewOpen && (
+        <WebcamPreviewModal
+          glbUrl={normalizedGlbUrl}
+          title={title}
+          onClose={() => setIsWebcamPreviewOpen(false)}
+        />
+      )}
+
+      {/* Cross-Device Compatibility & Guidance Dialog */}
       {notice && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 backdrop-blur-xs p-4">
           <div className="w-full max-w-md bg-white border border-border p-6 shadow-2xl space-y-4 text-left">
             <div className="flex items-center justify-between border-b border-border pb-3">
               <div className="flex items-center space-x-2">
-                {notice.reason === 'insecure_context' ? (
+                {notice.type === 'insecure_context' ? (
                   <ShieldAlert className="w-5 h-5 text-amber-600" />
                 ) : (
                   <Smartphone className="w-5 h-5 text-primary" />
@@ -286,14 +279,31 @@ export function ARLaunchButton({
               <p className="text-[11px] leading-normal">{notice.guidance}</p>
             </div>
 
-            <div className="pt-2 border-t border-border">
+            <div className="pt-2 border-t border-border space-y-2">
+              {/* Optional Laptop Webcam Simulation Action */}
+              {notice.allowWebcamPreview && (
+                <Button
+                  variant="gold"
+                  size="sm"
+                  onClick={() => {
+                    setNotice(null);
+                    setIsWebcamPreviewOpen(true);
+                  }}
+                  className="w-full text-xs uppercase tracking-wider flex items-center justify-center space-x-1.5 h-11"
+                >
+                  <Camera className="w-3.5 h-3.5" />
+                  <span>Start Laptop Webcam Preview</span>
+                </Button>
+              )}
+
               <Button
                 variant="outline"
                 size="sm"
                 onClick={() => setNotice(null)}
                 className="w-full text-xs h-10 border-border"
               >
-                Got It
+                <Eye className="w-3.5 h-3.5 mr-1.5" />
+                <span>Continue with 3D Studio Viewer</span>
               </Button>
             </div>
           </div>

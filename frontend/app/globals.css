@@ -51,13 +51,15 @@ model-viewer {
 }
 
 /* W3C WebXR DOM Overlay Transparency */
-:xr-overlay {
+:xr-overlay,
+#webxr-dom-overlay-root,
+#webxr-dom-overlay-root:fullscreen,
+#webxr-dom-overlay-root:-webkit-full-screen {
   background: transparent !important;
   background-color: transparent !important;
   user-select: none;
 }
 
-#webxr-dom-overlay-root,
 #webxr-dom-overlay-root * {
   background-color: transparent;
 }
