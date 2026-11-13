@@ -113,7 +113,7 @@ export function ARLaunchButton({
         return;
       }
 
-      // 4. Handle iOS Safari Limitation
+      // 4. Handle iOS Safari Limitation (Honest Guidance & Full 3D Viewer Inspection)
       if (caps.isIOS) {
         setNotice({
           type: 'ios_limitation',
@@ -121,7 +121,7 @@ export function ARLaunchButton({
           message:
             'Apple Safari on iOS does not support the W3C WebXR Device API required for in-browser real-world camera tracking.',
           guidance:
-            'Please explore the architectural door using the interactive 3D viewer above, or open this page on an Android phone running Google Chrome for in-browser WebXR AR.',
+            'You can interactively inspect, rotate, and pinch-to-zoom this architectural model at 1:1 scale using the 3D viewer above, or open this website on an Android phone running Google Chrome for in-browser WebXR AR.',
         });
         return;
       }

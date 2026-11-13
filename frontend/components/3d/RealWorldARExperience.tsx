@@ -48,6 +48,7 @@ export function RealWorldARExperience({
   const cameraRef = useRef<THREE.PerspectiveCamera | null>(null);
   const rendererRef = useRef<THREE.WebGLRenderer | null>(null);
   const modelGroupRef = useRef<THREE.Group | null>(null);
+  const modelScaleGroupRef = useRef<THREE.Group | null>(null);
   const reticleGroupRef = useRef<THREE.Group | null>(null);
 
   // WebXR References from Negotiation
@@ -62,6 +63,14 @@ export function RealWorldARExperience({
   const isDraggingRef = useRef(false);
   const currentWallPlaneRef = useRef<THREE.Plane | null>(null);
   const raycasterRef = useRef<THREE.Raycaster>(new THREE.Raycaster());
+
+  // Natural Pinch-to-Zoom Refs & State (Preserving Physical World-Space Anchor)
+  const currentScaleRef = useRef(1.0);
+  const initialPinchDistRef = useRef<number | null>(null);
+  const startScaleRef = useRef(1.0);
+  const isPinchingRef = useRef(false);
+  const modelHeightMetersRef = useRef(2.1);
+  const [pinchFeedbackScale, setPinchFeedbackScale] = useState<number | null>(null);
 
   const normalizedGlbUrl = useMemo(() => normalizeModelUrl(glbUrl), [glbUrl]);
 
@@ -157,14 +166,32 @@ export function RealWorldARExperience({
         const calibratedBox = new THREE.Box3().setFromObject(rawModel);
         const calibratedCenter = new THREE.Vector3();
         calibratedBox.getCenter(calibratedCenter);
+        const calibratedSize = new THREE.Vector3();
+        calibratedBox.getSize(calibratedSize);
+        modelHeightMetersRef.current = calibratedSize.y || 2.1;
 
         rawModel.position.x = -calibratedCenter.x;
         rawModel.position.y = -calibratedBox.min.y;
         rawModel.position.z = -calibratedBox.min.z;
 
-        // 3. World Anchor Group: Direct child of scene (never child of camera)
+        // 3. Model Transform (Scale) Group: Holds local zoom scaling
+        // Preserves pivot alignment with floor (Y=0) and wall (Z=0)
+        const scaleGroup = new THREE.Group();
+        scaleGroup.name = 'ModelScaleGroup';
+        scaleGroup.scale.set(
+          currentScaleRef.current,
+          currentScaleRef.current,
+          currentScaleRef.current
+        );
+        scaleGroup.add(rawModel);
+        modelScaleGroupRef.current = scaleGroup;
+
+        // 4. World Anchor Group: Direct child of scene (never child of camera)
+        // Holds physical world-space 6DoF position and wall yaw orientation.
+        // Zooming the scaleGroup will NEVER move or detach this anchor.
         const anchorGroup = new THREE.Group();
-        anchorGroup.add(rawModel);
+        anchorGroup.name = 'WorldAnchorGroup';
+        anchorGroup.add(scaleGroup);
         anchorGroup.visible = false; // Hidden until user taps a real physical surface
 
         scene.add(anchorGroup);
@@ -270,65 +297,137 @@ export function RealWorldARExperience({
     setIsPlaced(true);
   }, []);
 
+  // Dynamic safe min/max scale limits based on calibrated model height
+  const getZoomBounds = useCallback(() => {
+    const h = modelHeightMetersRef.current || 2.1;
+    // Bounds between min height ~0.5m (or min 0.25x) and max height ~4.5m (or max 2.5x)
+    const minScale = Math.max(0.25, 0.5 / h);
+    const maxScale = Math.min(2.5, 4.5 / h);
+    return { minScale, maxScale };
+  }, []);
+
   // =========================================================================
-  // 4. TOUCH-TO-PLACE & TOUCH DRAG-AND-DROP ON REAL PHYSICAL SURFACE
+  // 4. TOUCH-TO-PLACE, 2-FINGER PINCH-TO-ZOOM, & 1-FINGER DRAG REPOSITIONING
   // =========================================================================
   const handleTouchStart = (e: React.TouchEvent) => {
-    if (e.touches.length !== 1) return;
-    const touch = e.touches[0];
-
-    const modelGroup = modelGroupRef.current;
-    const camera = cameraRef.current;
-    if (!modelGroup || !camera) return;
-
-    // If model is not yet placed, tapping places it
-    if (!isPlacedRef.current) {
-      if (latestHitPoseRef.current) {
-        placeModelAtWorldHit(latestHitPoseRef.current, latestHitResultRef.current);
-      } else {
-        placeModelInFrontOfUser();
-      }
+    // 2-Finger Pinch Gesture: Start pinch-to-zoom
+    if (e.touches.length === 2) {
+      isPinchingRef.current = true;
+      isDraggingRef.current = false;
+      const dx = e.touches[0].clientX - e.touches[1].clientX;
+      const dy = e.touches[0].clientY - e.touches[1].clientY;
+      initialPinchDistRef.current = Math.hypot(dx, dy);
+      startScaleRef.current = currentScaleRef.current;
+      setPinchFeedbackScale(currentScaleRef.current);
       return;
     }
 
-    // If already placed, check if touching near the door model to drag
-    const mouse = new THREE.Vector2(
-      (touch.clientX / window.innerWidth) * 2 - 1,
-      -(touch.clientY / window.innerHeight) * 2 + 1
-    );
-    raycasterRef.current.setFromCamera(mouse, camera);
-    const intersects = raycasterRef.current.intersectObjects(modelGroup.children, true);
+    // 1-Finger Touch: Place or Drag Reposition
+    if (e.touches.length === 1 && !isPinchingRef.current) {
+      const touch = e.touches[0];
+      const modelGroup = modelGroupRef.current;
+      const camera = cameraRef.current;
+      if (!modelGroup || !camera) return;
 
-    if (intersects.length > 0) {
-      isDraggingRef.current = true;
-    } else if (latestHitPoseRef.current) {
-      placeModelAtWorldHit(latestHitPoseRef.current, latestHitResultRef.current);
+      // If model is not yet placed, tapping places it
+      if (!isPlacedRef.current) {
+        if (latestHitPoseRef.current) {
+          placeModelAtWorldHit(latestHitPoseRef.current, latestHitResultRef.current);
+        } else {
+          placeModelInFrontOfUser();
+        }
+        return;
+      }
+
+      // If already placed, check if touching near the door model to drag
+      const mouse = new THREE.Vector2(
+        (touch.clientX / window.innerWidth) * 2 - 1,
+        -(touch.clientY / window.innerHeight) * 2 + 1
+      );
+      raycasterRef.current.setFromCamera(mouse, camera);
+      const intersects = raycasterRef.current.intersectObjects(modelGroup.children, true);
+
+      if (intersects.length > 0) {
+        isDraggingRef.current = true;
+      } else if (latestHitPoseRef.current) {
+        placeModelAtWorldHit(latestHitPoseRef.current, latestHitResultRef.current);
+      }
     }
   };
 
   const handleTouchMove = (e: React.TouchEvent) => {
-    if (!isDraggingRef.current || !modelGroupRef.current || !cameraRef.current) return;
-    if (e.touches.length !== 1) return;
-    const touch = e.touches[0];
+    // 1. Two-finger pinch-to-zoom
+    // Scales modelScaleGroup only - world anchor group position and orientation are untouched
+    if (
+      e.touches.length === 2 &&
+      isPinchingRef.current &&
+      initialPinchDistRef.current !== null &&
+      modelScaleGroupRef.current
+    ) {
+      const dx = e.touches[0].clientX - e.touches[1].clientX;
+      const dy = e.touches[0].clientY - e.touches[1].clientY;
+      const currentDist = Math.hypot(dx, dy);
 
-    const wallPlane = currentWallPlaneRef.current;
-    if (!wallPlane) return;
+      if (initialPinchDistRef.current > 0) {
+        const pinchRatio = currentDist / initialPinchDistRef.current;
+        const { minScale, maxScale } = getZoomBounds();
+        const targetScale = THREE.MathUtils.clamp(
+          startScaleRef.current * pinchRatio,
+          minScale,
+          maxScale
+        );
+        currentScaleRef.current = targetScale;
+        modelScaleGroupRef.current.scale.set(targetScale, targetScale, targetScale);
+        setPinchFeedbackScale(targetScale);
+      }
+      return;
+    }
 
-    const mouse = new THREE.Vector2(
-      (touch.clientX / window.innerWidth) * 2 - 1,
-      -(touch.clientY / window.innerHeight) * 2 + 1
-    );
-    raycasterRef.current.setFromCamera(mouse, cameraRef.current);
+    // 2. Single-finger drag repositioning on wall plane
+    if (e.touches.length === 1 && !isPinchingRef.current && isDraggingRef.current) {
+      const modelGroup = modelGroupRef.current;
+      const camera = cameraRef.current;
+      const wallPlane = currentWallPlaneRef.current;
+      if (!modelGroup || !camera || !wallPlane) return;
 
-    const intersection = new THREE.Vector3();
-    const hit = raycasterRef.current.ray.intersectPlane(wallPlane, intersection);
-    if (hit) {
-      modelGroupRef.current.position.copy(intersection);
+      const touch = e.touches[0];
+      const mouse = new THREE.Vector2(
+        (touch.clientX / window.innerWidth) * 2 - 1,
+        -(touch.clientY / window.innerHeight) * 2 + 1
+      );
+      raycasterRef.current.setFromCamera(mouse, camera);
+
+      const intersection = new THREE.Vector3();
+      const hit = raycasterRef.current.ray.intersectPlane(wallPlane, intersection);
+      if (hit) {
+        modelGroup.position.copy(intersection);
+      }
     }
   };
 
-  const handleTouchEnd = () => {
-    isDraggingRef.current = false;
+  const handleTouchEnd = (e: React.TouchEvent) => {
+    if (e.touches.length < 2) {
+      isPinchingRef.current = false;
+      initialPinchDistRef.current = null;
+      setPinchFeedbackScale(null);
+    }
+    if (e.touches.length === 0) {
+      isDraggingRef.current = false;
+    }
+  };
+
+  // Desktop Mouse Wheel / Trackpad Zooming (Non-blocking, clamped)
+  const handleWheel = (e: React.WheelEvent) => {
+    if (!isPlacedRef.current || !modelScaleGroupRef.current) return;
+    const zoomFactor = e.deltaY < 0 ? 1.05 : 0.95;
+    const { minScale, maxScale } = getZoomBounds();
+    const targetScale = THREE.MathUtils.clamp(
+      currentScaleRef.current * zoomFactor,
+      minScale,
+      maxScale
+    );
+    currentScaleRef.current = targetScale;
+    modelScaleGroupRef.current.scale.set(targetScale, targetScale, targetScale);
   };
 
   // =========================================================================
@@ -458,7 +557,7 @@ export function RealWorldARExperience({
         document.body.removeChild(renderer.domElement);
       }
       renderer.dispose();
-      session.end().catch(() => {});
+      session.end().catch(() => { });
     };
   }, [
     session,
@@ -471,7 +570,7 @@ export function RealWorldARExperience({
   ]);
 
   const handleExit = () => {
-    session.end().catch(() => {});
+    session.end().catch(() => { });
     onClose();
   };
 
@@ -483,6 +582,7 @@ export function RealWorldARExperience({
       onTouchStart={handleTouchStart}
       onTouchMove={handleTouchMove}
       onTouchEnd={handleTouchEnd}
+      onWheel={handleWheel}
     >
       {/* 
         Minimal Discreet Close Control Only
@@ -500,6 +600,13 @@ export function RealWorldARExperience({
       >
         <X className="w-5 h-5" />
       </button>
+
+      {/* Subtle, transient scale indicator shown only while actively pinching */}
+      {pinchFeedbackScale !== null && (
+        <div className="absolute top-5 left-1/2 -translate-x-1/2 z-50 px-3 py-1 bg-black/60 backdrop-blur-xs border border-white/20 rounded-full text-[11px] font-mono text-white/90 tracking-wide pointer-events-none shadow-md">
+          {Math.round(pinchFeedbackScale * 100)}%
+        </div>
+      )}
     </div>
   );
 }

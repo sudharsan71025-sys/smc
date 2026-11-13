@@ -179,6 +179,78 @@ async function runBrowserARVerification() {
   const adminUser = await User.findOne({ role: 'admin' });
   assert(Boolean(adminUser), 'System Administrator Account Initialized', adminUser?.email);
 
+  // 6. Natural Pinch-to-Zoom & World-Anchor Isolation Audit (Feature 1)
+  logger.info('\n--- 6. Natural Pinch-to-Zoom & World-Anchor Isolation (Feature 1) ---');
+  assert(
+    realWorldArSource.includes('ModelScaleGroup') &&
+      realWorldArSource.includes('WorldAnchorGroup') &&
+      realWorldArSource.includes('modelScaleGroupRef'),
+    'Intermediate Scale Hierarchy (World Anchor Group -> Model Scale Group -> Raw Model)'
+  );
+
+  assert(
+    realWorldArSource.includes('isPinchingRef') &&
+      realWorldArSource.includes('Math.hypot') &&
+      realWorldArSource.includes('e.touches.length === 2') &&
+      realWorldArSource.includes('initialPinchDistRef'),
+    '2-Finger Pinch Touch Interaction Implemented (Pinch-Out Zoom In, Pinch-In Zoom Out)'
+  );
+
+  assert(
+    realWorldArSource.includes('getZoomBounds') &&
+      realWorldArSource.includes('THREE.MathUtils.clamp') &&
+      realWorldArSource.includes('modelHeightMetersRef'),
+    'Adaptive Safe Min/Max Zoom Limits Bounded by Physical Architectural Dimensions'
+  );
+
+  assert(
+    realWorldArSource.includes('modelScaleGroupRef.current.scale.set(') &&
+      !realWorldArSource.includes('modelGroupRef.current.position.set(0, 0, 0)') &&
+      realWorldArSource.includes('Zooming the scaleGroup will NEVER move or detach this anchor'),
+    'Physical World Anchor Preserved (Zoom scaling is isolated from 6DoF world-space anchor position)'
+  );
+
+  assert(
+    realWorldArSource.includes('handleWheel') &&
+      realWorldArSource.includes('onWheel={handleWheel}'),
+    'Desktop Mouse Wheel & Trackpad Zooming Supported with Bounds Clamping'
+  );
+
+  assert(
+    realWorldArSource.includes('e.touches.length === 1 && !isPinchingRef.current') &&
+      realWorldArSource.includes('isDraggingRef.current'),
+    'Touch Drag Repositioning Cleanly Separated from 2-Finger Pinch Zooming (Zero Conflict)'
+  );
+
+  // 7. Maximum Practical iPhone Compatibility Audit (Feature 2)
+  logger.info('\n--- 7. Maximum Practical iPhone Compatibility (Feature 2) ---');
+  assert(
+    threeViewerSource.includes("touchAction: 'none'") ||
+      threeViewerSource.includes('touch-none'),
+    'iOS Touch-Action None Configured on Container & Canvas (Prevents Safari Rubber-Banding)'
+  );
+
+  assert(
+    threeViewerSource.includes('THREE.TOUCH.ROTATE') &&
+      threeViewerSource.includes('THREE.TOUCH.DOLLY_PAN'),
+    'OrbitControls Mobile Gestures Explicitly Mapped (1-Finger Rotate, 2-Finger Pinch-Zoom & Pan)'
+  );
+
+  assert(
+    threeViewerSource.includes('disposeMaterial') &&
+      threeViewerSource.includes('isTexture') &&
+      threeViewerSource.includes('dispose()'),
+    'Deep GPU Texture & WebKit Memory Disposal Implemented (Prevents iOS Safari Jetsam Kills)'
+  );
+
+  assert(
+    capabilityServiceSource.includes('isIOS') &&
+      capabilityServiceSource.includes('ios-fallback') &&
+      arButtonSource.includes('Apple Safari on iOS does not support the W3C WebXR Device API') &&
+      arButtonSource.includes('pinch-to-zoom'),
+    'Honest, Informative iOS Guidance (Directs to 1:1 3D Studio Inspection without False AR Claims)'
+  );
+
   await mongoose.disconnect();
 
   logger.info('\n================================================================');

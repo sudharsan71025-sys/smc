@@ -152,15 +152,23 @@ export function Three3DViewer({
     renderer.outputColorSpace = THREE.SRGBColorSpace;
     rendererRef.current = renderer;
 
-    // 4. OrbitControls
+    // 4. OrbitControls with explicit touch configuration for iPhone Safari / mobile gestures
     const controls = new OrbitControls(camera, canvas);
     controls.enableDamping = true;
     controls.dampingFactor = 0.05;
+    controls.enableZoom = true;
+    controls.enableRotate = true;
+    controls.enablePan = true;
     controls.autoRotate = autoRotate;
     controls.autoRotateSpeed = 1.5;
     controls.maxDistance = 10;
     controls.minDistance = 0.5;
     controls.maxPolarAngle = Math.PI / 2 + 0.05; // Do not go below floor plane
+    // Touch mapping: 1-finger rotate orbit, 2-finger pinch zoom & dolly pan
+    controls.touches = {
+      ONE: THREE.TOUCH.ROTATE,
+      TWO: THREE.TOUCH.DOLLY_PAN,
+    };
     controlsRef.current = controls;
 
     // 5. Studio Architectural Lighting
@@ -314,7 +322,7 @@ export function Three3DViewer({
     };
     animate();
 
-    // Cleanup
+    // Cleanup with deep GPU texture disposal (safeguards iOS Safari WebKit memory limits)
     return () => {
       isDisposed = true;
       if (animFrameIdRef.current !== null) {
@@ -327,14 +335,32 @@ export function Three3DViewer({
       if (rendererRef.current) {
         rendererRef.current.dispose();
       }
-      // Traverse and dispose geometries and materials
+
+      const disposeMaterial = (material: THREE.Material) => {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const mat = material as any;
+        for (const key of Object.keys(mat)) {
+          const prop = mat[key];
+          if (
+            prop &&
+            typeof prop === 'object' &&
+            'isTexture' in prop &&
+            typeof prop.dispose === 'function'
+          ) {
+            prop.dispose();
+          }
+        }
+        mat.dispose();
+      };
+
+      // Traverse and dispose geometries, materials, and textures
       scene.traverse((obj) => {
         if (obj instanceof THREE.Mesh) {
           obj.geometry?.dispose();
           if (Array.isArray(obj.material)) {
-            obj.material.forEach((m) => m.dispose());
+            obj.material.forEach((m) => disposeMaterial(m));
           } else if (obj.material) {
-            obj.material.dispose();
+            disposeMaterial(obj.material);
           }
         }
       });
@@ -344,11 +370,16 @@ export function Three3DViewer({
   return (
     <div
       ref={containerRef}
-      className={`relative bg-[#FCFCFC] border border-border overflow-hidden select-none ${className}`}
+      className={`relative bg-[#FCFCFC] border border-border overflow-hidden select-none touch-none ${className}`}
+      style={{ touchAction: 'none' }}
       aria-label={alt}
     >
       {/* Three.js Canvas */}
-      <canvas ref={canvasRef} className="w-full h-full block cursor-grab active:cursor-grabbing" />
+      <canvas
+        ref={canvasRef}
+        className="w-full h-full block cursor-grab active:cursor-grabbing touch-none"
+        style={{ touchAction: 'none' }}
+      />
 
       {/* Loading Overlay */}
       {isLoading && (
